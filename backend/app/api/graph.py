@@ -539,13 +539,21 @@ def list_tasks():
     """
     List all tasks
     """
-    tasks = TaskManager().list_tasks()
-    
-    return jsonify({
-        "success": True,
-        "data": [t.to_dict() for t in tasks],
-        "count": len(tasks)
-    })
+    try:
+        tasks = TaskManager().list_tasks()
+
+        return jsonify({
+            "success": True,
+            "data": tasks,
+            "count": len(tasks)
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
 
 # ============== Graph Data API ==============
