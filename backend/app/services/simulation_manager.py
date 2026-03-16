@@ -5,6 +5,7 @@ Uses preset scripts + LLM-powered intelligent configuration parameter generation
 """
 
 import os
+import csv
 import json
 import shutil
 from typing import Dict, Any, List, Optional
@@ -484,11 +485,22 @@ class SimulationManager:
             raise ValueError(f"Simulation does not exist: {simulation_id}")
         
         sim_dir = self._get_simulation_dir(simulation_id)
+
+        if platform == "twitter":
+            profile_path = os.path.join(sim_dir, "twitter_profiles.csv")
+
+            if not os.path.exists(profile_path):
+                raise ValueError(f"twitter_profiles.csv not found for {simulation_id}")
+
+            with open(profile_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                return list(reader)
+
         profile_path = os.path.join(sim_dir, f"{platform}_profiles.json")
-        
+
         if not os.path.exists(profile_path):
             return []
-        
+
         with open(profile_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     
