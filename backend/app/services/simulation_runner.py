@@ -998,7 +998,8 @@ class SimulationRunner:
         Returns:
             Summary information for each round
         """
-        actions = cls.get_actions(simulation_id, limit=10000)
+        actions = cls.get_all_actions(simulation_id)
+        actions.sort(key=lambda x: x.timestamp)
         
         # Group by round
         rounds: Dict[int, Dict[str, Any]] = {}
@@ -1059,8 +1060,9 @@ class SimulationRunner:
         Returns:
             Agent statistics list
         """
-        actions = cls.get_actions(simulation_id, limit=10000)
-        
+        actions = cls.get_all_actions(simulation_id)
+        actions.sort(key=lambda x: x.timestamp)
+
         agent_stats: Dict[int, Dict[str, Any]] = {}
         
         for action in actions:
@@ -1760,4 +1762,3 @@ class SimulationRunner:
             results = results[:limit]
         
         return results
-
