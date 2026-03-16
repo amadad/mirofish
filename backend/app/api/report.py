@@ -21,63 +21,41 @@ logger = get_logger('mirofish.api.report')
 
 # ============== Report Generation API ==============
 
-def _build_completed_report_status(report):
-    """Build the completed-status payload shared by GET and POST handlers."""
-    return {
-        "simulation_id": report.simulation_id,
-        "report_id": report.report_id,
-        "status": "completed",
-        "progress": 100,
-        "message": "Report already generated",
-        "already_completed": True
-    }
+def _task_to_dict(task) -> dict:
+    """Normalize task objects and pre-serialized task dicts."""
+    return task if isinstance(task, dict) else task.to_dict()
 
 
-def _find_report_generate_task(report_id: str):
-    """Find the report generation task associated with a report_id."""
+def _normalize_task_status_data(task_data: dict) -> dict:
+    """Ensure task status payloads always expose a numeric progress field."""
+    normalized = dict(task_data)
+    if normalized.get("progress") is None:
+        normalized["progress"] = 0
+    return normalized
+
+
+def _get_generate_task_by_report_id(report_id: str) -> dict:
+    """Resolve an in-flight report generation task by report_id."""
     task_manager = TaskManager()
-
-    for task_data in task_manager.list_tasks(task_type="report_generate"):
+    for task in task_manager.list_tasks(task_type="report_generate"):
+        task_data = _task_to_dict(task)
         metadata = task_data.get("metadata") or {}
         if metadata.get("report_id") == report_id:
-            return task_manager.get_task(task_data["task_id"])
-
+            return _normalize_task_status_data(task_data)
     return None
 
 
-def _normalize_task_status(task):
-    """Normalize task responses so missing progress defaults to 0."""
-    task_data = task.to_dict()
-    if task_data.get("progress") is None:
-        task_data["progress"] = 0
-    return task_data
-
-
-def _build_report_progress_status(report_id: str, report=None):
-    """Build a status payload from persisted report progress when no task is available."""
-    progress = ReportManager.get_progress(report_id) or {}
-    raw_status = progress.get("status")
-
-    if raw_status in {"pending", "planning", "generating"}:
-        status = "processing"
-    elif raw_status:
-        status = raw_status
-    elif report and report.status == ReportStatus.FAILED:
-        status = "failed"
-    else:
-        status = "processing"
-
-    data = {
-        "report_id": report_id,
-        "status": status,
-        "progress": progress.get("progress", 0) if progress.get("progress") is not None else 0,
-        "message": progress.get("message") or (report.error if report and report.status == ReportStatus.FAILED else "")
+def _build_status_data_from_report(report) -> dict:
+    """Build a status payload from persisted report metadata."""
+    is_completed = report.status == ReportStatus.COMPLETED
+    return {
+        "simulation_id": report.simulation_id,
+        "report_id": report.report_id,
+        "status": report.status.value,
+        "progress": 100 if is_completed else 0,
+        "message": "Report already generated" if is_completed else (report.error or "Report status available"),
+        "already_completed": is_completed,
     }
-
-    if report:
-        data["simulation_id"] = report.simulation_id
-
-    return data
 
 @report_bp.route('/generate', methods=['POST'])
 def generate_report():
