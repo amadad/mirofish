@@ -1,39 +1,38 @@
-FROM node:20-bookworm-slim AS frontend-build
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/package-lock.json ./
+COPY frontend/package*.json ./
 RUN npm ci
 
 COPY frontend/ ./
-ENV VITE_API_BASE_URL=
 RUN npm run build
 
 
 FROM python:3.11-slim
 
-# Runtime deps: node is kept for Claude/Codex CLI wrappers mounted from the host.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends nodejs npm \
-  && rm -rf /var/lib/apt/lists/*
-
-# Copy uv from the official image for fast dependency installs.
-COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    FLASK_DEBUG=false \
-    FLASK_HOST=0.0.0.0 \
-    FLASK_PORT=5001
+    FLASK_DEBUG=false
 
-COPY backend/requirements.txt ./backend/requirements.txt
-RUN uv pip install --system -r backend/requirements.txt
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends nginx \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY backend/pyproject.toml backend/uv.lock ./backend/
+RUN cd backend && uv sync --frozen --no-dev
 
 COPY backend/ ./backend/
-COPY --from=frontend-build /app/frontend/dist ./frontend/dist
+COPY --from=frontend-builder /app/frontend/dist /var/www/mirofish/
 
-EXPOSE 5001
+COPY docker/nginx.conf /etc/nginx/sites-available/default
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-CMD ["python", "backend/run.py"]
+EXPOSE 3000
+
+CMD ["/entrypoint.sh"]

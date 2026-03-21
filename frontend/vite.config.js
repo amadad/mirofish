@@ -8,6 +8,7 @@ export default defineConfig({
     port: 3000,
     open: true,
     allowedHosts: true,
+    // Keep the frontend on same-origin `/api` paths in dev and production.
     proxy: {
       '/api': {
         target: 'http://localhost:5001',

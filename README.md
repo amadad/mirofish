@@ -26,32 +26,36 @@ A swarm intelligence prediction engine. Upload documents describing any scenario
 
 ## Quick start
 
-### Prerequisites
-
-- Node.js 18+
-- Python 3.11-3.12
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-
-### Setup
-
-```bash
-cp .env.example .env
-# Edit .env — pick your LLM provider (see below)
-npm run setup:all
-npm run dev
-```
-
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5001
-
-### Docker
+### Docker (recommended)
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-Docker builds the Vue frontend, serves it from the Flask app, and exposes the combined app on port `5001` inside the container.
+Open http://localhost:3000
+
+- Frontend: `http://localhost:3000/`
+- API: `http://localhost:3000/api/...`
+- Health check: `http://localhost:3000/health`
+
+The production image builds the Vite frontend, serves the static bundle through nginx, and runs the Flask backend behind gunicorn. Gunicorn stays at one worker because `SimulationRunner` keeps class-level subprocess state that is not safe to share across multiple workers.
+
+### Local development
+
+- Node.js 18+
+- Python 3.11-3.12
+- [uv](https://docs.astral.sh/uv/)
+
+```bash
+cp .env.example .env
+# Edit .env and choose your LLM provider
+npm run setup:all
+npm run dev
+```
+
+- Frontend dev server: `http://localhost:3000`
+- Backend API: `http://localhost:5001`
 
 ## LLM providers
 
@@ -65,7 +69,7 @@ Set `LLM_PROVIDER` in `.env`:
 | `anthropic` | Set `LLM_API_KEY` + `LLM_MODEL_NAME` | Pay-per-token |
 
 ```env
-# Example: use Codex CLI (no API key needed)
+# Example: use Codex CLI (no API key required)
 LLM_PROVIDER=codex-cli
 
 # Example: use OpenAI API
@@ -141,8 +145,5 @@ Document upload → LLM ontology extraction → Knowledge graph (GraphStorage �
 - [KuzuDB](https://github.com/kuzudb/kuzu) — embedded graph database
 
 ## License
-
-AGPL-3.0
-License
 
 AGPL-3.0
