@@ -254,40 +254,30 @@ def get_generate_status():
         }
     """
     try:
+        report_id = None
         if request.method == 'GET':
+            task_id = request.args.get('task_id')
+            simulation_id = request.args.get('simulation_id')
             report_id = request.args.get('report_id')
+        else:
+            data = request.get_json() or {}
+            task_id = data.get('task_id')
+            simulation_id = data.get('simulation_id')
+            report_id = data.get('report_id')
 
-            if not report_id:
-                return jsonify({
-                    "success": False,
-                    "error": "Please provide report_id"
-                }), 400
-
-            task = _find_report_generate_task(report_id)
-            if task:
+        if report_id:
+            task_data = _get_generate_task_by_report_id(report_id)
+            if task_data:
                 return jsonify({
                     "success": True,
-                    "data": _normalize_task_status(task)
+                    "data": task_data
                 })
 
             report = ReportManager.get_report(report_id)
             if report:
-                if report.status == ReportStatus.COMPLETED:
-                    return jsonify({
-                        "success": True,
-                        "data": _build_completed_report_status(report)
-                    })
-
                 return jsonify({
                     "success": True,
-                    "data": _build_report_progress_status(report_id, report)
-                })
-
-            progress = ReportManager.get_progress(report_id)
-            if progress:
-                return jsonify({
-                    "success": True,
-                    "data": _build_report_progress_status(report_id)
+                    "data": _build_status_data_from_report(report)
                 })
 
             return jsonify({
@@ -295,40 +285,41 @@ def get_generate_status():
                 "error": f"Report not found: {report_id}"
             }), 404
 
-        data = request.get_json() or {}
-
-        task_id = data.get('task_id')
-        simulation_id = data.get('simulation_id')
-        
-        # If simulation_id is provided, first check if a completed report already exists
         if simulation_id:
             existing_report = ReportManager.get_report_by_simulation(simulation_id)
             if existing_report and existing_report.status == ReportStatus.COMPLETED:
                 return jsonify({
                     "success": True,
-                    "data": _build_completed_report_status(existing_report)
+                    "data": {
+                        "simulation_id": simulation_id,
+                        "report_id": existing_report.report_id,
+                        "status": "completed",
+                        "progress": 100,
+                        "message": "Report already generated",
+                        "already_completed": True
+                    }
                 })
-        
+
         if not task_id:
             return jsonify({
                 "success": False,
-                "error": "Please provide task_id or simulation_id"
+                "error": "Please provide task_id, simulation_id, or report_id"
             }), 400
-        
+
         task_manager = TaskManager()
         task = task_manager.get_task(task_id)
-        
+
         if not task:
             return jsonify({
                 "success": False,
                 "error": f"Task not found: {task_id}"
             }), 404
-        
+
         return jsonify({
             "success": True,
-            "data": _normalize_task_status(task)
+            "data": _normalize_task_status_data(_task_to_dict(task))
         })
-        
+
     except Exception as e:
         logger.error(f"Failed to query task status: {str(e)}")
         return jsonify({
