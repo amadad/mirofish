@@ -112,6 +112,7 @@ Extract all entities and relationships from the text above that match the ontolo
                 ],
                 temperature=0.2,
                 max_tokens=4096,
+                task_type="extraction",
             )
 
             entities = result.get("entities", [])

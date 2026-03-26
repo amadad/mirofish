@@ -200,10 +200,17 @@ class LLMClient:
         prompt = "\n\n".join(prompt_parts)
 
         try:
+            import shutil, os
+            claude_bin = shutil.which("claude") or "claude"
             result = subprocess.run(
-                ["claude", "-p", "--output-format", "json", prompt],
-                capture_output=True, text=True, timeout=120,
-                cwd="/tmp"
+                [claude_bin, "-p",
+                 "--output-format", "json",
+                 "--setting-sources", "",
+                 "--system-prompt", "You are a JSON-only API. Return valid JSON only. No markdown, no explanations."],
+                input=prompt,
+                capture_output=True, text=True, timeout=180,
+                encoding="utf-8", errors="replace",
+                cwd=os.environ.get("TEMP", os.path.expanduser("~"))
             )
 
             if result.returncode != 0:
@@ -283,7 +290,8 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.3,
-        max_tokens: int = 4096
+        max_tokens: int = 4096,
+        task_type: str = None
     ) -> Dict[str, Any]:
         """
         Send a chat request and return JSON.

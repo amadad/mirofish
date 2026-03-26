@@ -185,6 +185,7 @@ class OasisProfileGenerator:
         model_name: Optional[str] = None,
         graph_id: Optional[str] = None,
         storage: Optional[GraphStorage] = None,
+        cache_dir: Optional[str] = None,
     ):
         self.api_key = api_key or Config.LLM_API_KEY
         self.base_url = base_url or Config.LLM_BASE_URL
@@ -202,6 +203,78 @@ class OasisProfileGenerator:
         self.db = GraphDatabase()
         self.storage = storage
         self.graph_id = graph_id
+
+        # Profile cache
+        import os
+        self.cache_dir = cache_dir or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "data", "profiles_cache"
+        )
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+    # ---- Profile Cache Methods ----
+
+    def _cache_key(self, entity_uuid: str, version: str = "v1") -> str:
+        """Generate cache key for a profile"""
+        graph_prefix = self.graph_id or "default"
+        return f"{graph_prefix}_{entity_uuid}_{version}"
+
+    def _get_cached_profile(self, entity_uuid: str, version: str = "v1") -> Optional['OasisAgentProfile']:
+        """Load profile from cache if available"""
+        import os
+        cache_file = os.path.join(self.cache_dir, f"{self._cache_key(entity_uuid, version)}.json")
+        if not os.path.exists(cache_file):
+            return None
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            logger.info(f"Cache HIT for entity {entity_uuid}")
+            return OasisAgentProfile(**data)
+        except Exception as e:
+            logger.warning(f"Cache read error for {entity_uuid}: {e}")
+            return None
+
+    def _save_to_cache(self, profile: 'OasisAgentProfile', version: str = "v1") -> None:
+        """Save profile to cache"""
+        import os
+        cache_file = os.path.join(
+            self.cache_dir,
+            f"{self._cache_key(profile.source_entity_uuid, version)}.json"
+        )
+        try:
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(profile.to_dict(), f, ensure_ascii=False, indent=2)
+            logger.info(f"Cached profile for {profile.name}")
+        except Exception as e:
+            logger.warning(f"Cache write error: {e}")
+
+    def invalidate_cache(self, entity_uuid: Optional[str] = None) -> int:
+        """Invalidate cached profiles. Returns count of deleted files."""
+        import os, glob
+        if entity_uuid:
+            pattern = os.path.join(self.cache_dir, f"*_{entity_uuid}_*.json")
+        else:
+            pattern = os.path.join(self.cache_dir, "*.json")
+        files = glob.glob(pattern)
+        for f in files:
+            os.remove(f)
+        logger.info(f"Invalidated {len(files)} cached profiles")
+        return len(files)
+
+    def warm_cache(self, entities: List[EntityNode]) -> Dict[str, int]:
+        """Pre-generate and cache profiles for all entities."""
+        cached = 0
+        generated = 0
+        for i, entity in enumerate(entities):
+            if self._get_cached_profile(entity.uuid):
+                cached += 1
+            else:
+                try:
+                    self.generate_profile_from_entity(entity, user_id=i + 1)
+                    generated += 1
+                except Exception as e:
+                    logger.error(f"Failed to generate profile for {entity.name}: {e}")
+        return {"already_cached": cached, "newly_generated": generated, "total": len(entities)}
 
     def generate_profile_from_entity(
         self,
@@ -221,6 +294,13 @@ class OasisProfileGenerator:
             OasisAgentProfile
         """
         entity_type = entity.get_entity_type() or "Entity"
+
+        # Check cache first
+        cached = self._get_cached_profile(entity.uuid)
+        if cached:
+            # Update user_id in case it changed
+            cached.user_id = user_id
+            return cached
 
         # Basic information
         name = entity.name
@@ -247,7 +327,7 @@ class OasisProfileGenerator:
                 entity_attributes=entity.attributes
             )
 
-        return OasisAgentProfile(
+        profile = OasisAgentProfile(
             user_id=user_id,
             user_name=user_name,
             name=name,
@@ -266,6 +346,11 @@ class OasisProfileGenerator:
             source_entity_uuid=entity.uuid,
             source_entity_type=entity_type,
         )
+
+        # Save to cache
+        self._save_to_cache(profile)
+
+        return profile
 
     def _generate_username(self, name: str) -> str:
         """Generate a username"""

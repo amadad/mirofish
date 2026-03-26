@@ -12,28 +12,24 @@ dependencies = [
     # Core framework
     "flask>=3.0.0",
     "flask-cors>=6.0.0",
-
     # LLM providers
     "openai>=1.0.0",
     "anthropic>=0.40.0",
-
     # Graph database (embedded, local KuzuDB)
     "kuzu>=0.8.0",
-
     # OASIS social media simulation
     "camel-oasis==0.2.5",
     "camel-ai==0.2.78",
-
     # File processing
     "PyMuPDF>=1.24.0",
     # Encoding detection (supports non-UTF-8 text files)
     "charset-normalizer>=3.0.0",
     "chardet>=5.0.0",
-
     # Utilities
     "python-dotenv>=1.0.0",
     "waitress>=3.0.0",
     "pydantic>=2.0.0",
+    "qdrant-client>=1.17.1",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +37,14 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pipreqs>=0.5.0",
+]
+
+# Override pinned deps from camel-oasis/camel-ai to get Python 3.13 wheels
+[tool.uv]
+override-dependencies = [
+    "tiktoken>=0.8.0",
+    "pillow>=11.0.0",
+    "pandas>=2.2.3",
 ]
 
 [build-system]

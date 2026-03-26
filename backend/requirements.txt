@@ -36,3 +36,17 @@ python-dotenv>=1.0.0
 waitress>=3.0.0
 # Data validation
 pydantic>=2.0.0
+# YAML configuration
+pyyaml>=6.0
+
+# ============= Search & Embeddings =============
+# Vector search (embedded mode)
+qdrant-client>=1.7.0
+# Cloud vector search (optional, for Pinecone backend)
+pinecone>=5.0.0
+# Embedding models + reranker
+sentence-transformers>=3.0.0
+
+# ============= Testing =============
+pytest>=8.0.0
+pytest-asyncio>=0.23

@@ -2153,3 +2153,46 @@ def close_simulation_env():
             "success": False,
             "error": str(e)
         }), 500
+
+
+@simulation_bp.route('/cost', methods=['GET'])
+def get_simulation_cost():
+    """
+    Get LLM cost breakdown for the current session.
+
+    Returns per-provider call counts, token usage, and estimated costs.
+    Requires multi-LLM router to be active (LLM_ROUTER_CONFIG set).
+
+    Response:
+        {
+            "total_calls": 150,
+            "total_estimated_cost": 0.45,
+            "providers": {
+                "groq": {"calls": 140, "input_tokens": 50000, "output_tokens": 20000, "estimated_cost": 0.04},
+                "anthropic": {"calls": 10, "input_tokens": 5000, "output_tokens": 3000, "estimated_cost": 0.30}
+            }
+        }
+    """
+    try:
+        from ..resources.llm import LLMProvider
+        provider = LLMProvider()
+        if provider.is_routed and provider.router:
+            return jsonify({
+                "success": True,
+                "data": provider.router.cost_tracker.summary()
+            })
+        return jsonify({
+            "success": True,
+            "data": {
+                "message": "Cost tracking requires multi-LLM router (set LLM_ROUTER_CONFIG)",
+                "total_calls": 0,
+                "total_estimated_cost": 0,
+                "providers": {}
+            }
+        })
+    except Exception as e:
+        logger.error(f"Failed to get cost summary: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500

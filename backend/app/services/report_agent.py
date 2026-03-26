@@ -23,6 +23,7 @@ from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from .graph_tools import (
     GraphToolsService,
+    get_graph_tools,
     SearchResult,
     InsightForgeResult,
     PanoramaResult,
@@ -903,7 +904,7 @@ class ReportAgent:
         self.simulation_requirement = simulation_requirement
 
         self.llm = llm_client or LLMClient()
-        self.graph_tools = graph_tools or GraphToolsService()
+        self.graph_tools = graph_tools or get_graph_tools()
 
         # Tool definitions
         self.tools = self._define_tools()
@@ -1178,7 +1179,8 @@ class ReportAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3
+                temperature=0.3,
+                task_type="report",
             )
 
             if progress_callback:
@@ -1303,7 +1305,8 @@ class ReportAgent:
             response = self.llm.chat(
                 messages=messages,
                 temperature=0.5,
-                max_tokens=4096
+                max_tokens=4096,
+                task_type="report",
             )
 
             # Check if LLM returned None (API exception or empty content)
@@ -1506,7 +1509,8 @@ class ReportAgent:
         response = self.llm.chat(
             messages=messages,
             temperature=0.5,
-            max_tokens=4096
+            max_tokens=4096,
+            task_type="report",
         )
 
         # Check if LLM returned None during forced finalization
@@ -1826,7 +1830,8 @@ class ReportAgent:
         for iteration in range(max_iterations):
             response = self.llm.chat(
                 messages=messages,
-                temperature=0.5
+                temperature=0.5,
+                task_type="report",
             )
 
             # Parse tool calls
@@ -1866,7 +1871,8 @@ class ReportAgent:
         # Maximum iterations reached, get final response
         final_response = self.llm.chat(
             messages=messages,
-            temperature=0.5
+            temperature=0.5,
+            task_type="report",
         )
 
         # Clean response

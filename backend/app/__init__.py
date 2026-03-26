@@ -50,6 +50,21 @@ def create_app(config_class=Config):
     else:
         app.extensions["graph_storage"] = KuzuDBStorage(db_path=app.config["KUZU_DB_PATH"])
     
+    # Initialize hybrid search (semantic + BM25 via Qdrant embedded)
+    try:
+        from .services.hybrid_search import HybridSearchService
+        hybrid_db_path = os.path.join(os.path.dirname(__file__), "../data/hybrid_search")
+        app.extensions["hybrid_search"] = HybridSearchService(
+            db_path=hybrid_db_path,
+            model_name=os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3"),
+        )
+        if should_log_startup:
+            logger.info("Hybrid search enabled (Qdrant + BGE-M3)")
+    except Exception as e:
+        app.extensions["hybrid_search"] = None
+        if should_log_startup:
+            logger.warning("Hybrid search disabled: %s", e)
+
     # Register simulation process cleanup (ensure all simulation processes are terminated on server shutdown)
     from .services.simulation_runner import SimulationRunner
     SimulationRunner.register_cleanup()
@@ -72,10 +87,46 @@ def create_app(config_class=Config):
         return response
     
     # Register blueprints
-    from .api import graph_bp, simulation_bp, report_bp
+    from .api import graph_bp, simulation_bp, report_bp, knesset_bp, knesset_data_bp
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
+    app.register_blueprint(knesset_bp)
+    app.register_blueprint(knesset_data_bp)
+
+    # Initialize Pinecone search service
+    try:
+        from .services.pinecone_search import PineconeSearchService
+        pinecone_service = PineconeSearchService()
+        if pinecone_service.is_available:
+            app.extensions["pinecone_search"] = pinecone_service
+            if should_log_startup:
+                logger.info("Pinecone search enabled")
+        else:
+            app.extensions["pinecone_search"] = None
+    except Exception as e:
+        app.extensions["pinecone_search"] = None
+        if should_log_startup:
+            logger.warning("Pinecone search disabled: %s", e)
+
+    # Initialize Knesset Data Daemon (background collection)
+    if os.environ.get("KNESSET_DAEMON_ENABLED", "").lower() in ("1", "true", "yes"):
+        try:
+            from .services.knesset.data_daemon import KnessetDataDaemon
+            daemon = KnessetDataDaemon(
+                graph_storage=app.extensions.get("graph_storage"),
+                pinecone_service=app.extensions.get("pinecone_search"),
+            )
+            app.extensions["knesset_daemon"] = daemon
+            daemon.start()
+            if should_log_startup:
+                logger.info("Knesset Data Daemon started (background collection)")
+        except Exception as e:
+            app.extensions["knesset_daemon"] = None
+            if should_log_startup:
+                logger.warning("Knesset Data Daemon failed to start: %s", e)
+    else:
+        app.extensions["knesset_daemon"] = None
     
     # Health check
     @app.route('/health')

@@ -41,6 +41,34 @@ const routes = [
     name: 'Interaction',
     component: InteractionView,
     props: true
+  },
+  // --- Knesset Simulator ---
+  {
+    path: '/knesset',
+    name: 'KnessetHome',
+    component: () => import('../views/knesset/KnessetHome.vue')
+  },
+  {
+    path: '/knesset/simulate',
+    name: 'KnessetSimulate',
+    component: () => import('../views/knesset/KnessetSimulate.vue')
+  },
+  {
+    path: '/knesset/simulate/:simId',
+    name: 'KnessetResults',
+    component: () => import('../views/knesset/KnessetResults.vue'),
+    props: true
+  },
+  {
+    path: '/knesset/mk/:mkId',
+    name: 'KnessetMKDetail',
+    component: () => import('../views/knesset/KnessetMKDetail.vue'),
+    props: true
+  },
+  {
+    path: '/knesset/history',
+    name: 'KnessetHistory',
+    component: () => import('../views/knesset/KnessetHistory.vue')
   }
 ]
 

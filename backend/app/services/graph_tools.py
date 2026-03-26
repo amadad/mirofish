@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
+from .hybrid_search import HybridSearchService
 
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
@@ -396,6 +397,19 @@ class InterviewResult:
         return "\n".join(text_parts)
 
 
+def get_graph_tools(**kwargs) -> "GraphToolsService":
+    """Factory: create GraphToolsService with hybrid search from Flask app context."""
+    try:
+        from flask import current_app
+        if "hybrid_search" not in kwargs:
+            kwargs["hybrid_search"] = current_app.extensions.get("hybrid_search")
+        if "storage" not in kwargs:
+            kwargs["storage"] = current_app.extensions.get("graph_storage")
+    except (ImportError, RuntimeError):
+        pass  # Not in Flask context — use defaults
+    return GraphToolsService(**kwargs)
+
+
 class GraphToolsService:
     """
     Graph retrieval tools service.
@@ -424,12 +438,15 @@ class GraphToolsService:
         self,
         llm_client: Optional[LLMClient] = None,
         storage: Optional[GraphStorage] = None,
+        hybrid_search: Optional[HybridSearchService] = None,
     ):
         self.db = GraphDatabase()
         self.storage = storage
+        self.hybrid_search = hybrid_search
         # LLM client used for InsightForge sub-query generation
         self._llm_client = llm_client
-        logger.info("GraphToolsService initialized successfully (using local GraphDatabase)")
+        search_mode = "hybrid" if hybrid_search else "keyword"
+        logger.info("GraphToolsService initialized (search=%s)", search_mode)
 
     @property
     def llm(self) -> LLMClient:
@@ -557,9 +574,11 @@ class GraphToolsService:
         scope: str = "edges"
     ) -> SearchResult:
         """
-        Local keyword matching search (fallback)
+        Local search with optional hybrid (semantic + BM25) upgrade.
 
-        Fetches all edges/nodes and performs local keyword matching.
+        When HybridSearchService is available, uses vector similarity + BM25
+        keyword matching with RRF fusion and optional cross-encoder reranking.
+        Falls back to simple keyword matching otherwise.
 
         Args:
             graph_id: Graph ID
@@ -570,7 +589,11 @@ class GraphToolsService:
         Returns:
             SearchResult: Search results
         """
-        logger.info(f"Using local search: query={query[:30]}...")
+        # Try hybrid search first (semantic + BM25)
+        if self.hybrid_search and self.hybrid_search.is_indexed(graph_id):
+            return self._hybrid_search(graph_id, query, limit, scope)
+
+        logger.info(f"Using local keyword search: query={query[:30]}...")
 
         facts = []
         edges_result = []
@@ -652,6 +675,110 @@ class GraphToolsService:
             query=query,
             total_count=len(facts)
         )
+
+    def _hybrid_search(
+        self,
+        graph_id: str,
+        query: str,
+        limit: int = 10,
+        scope: str = "edges"
+    ) -> SearchResult:
+        """
+        Hybrid search using semantic embeddings + BM25 with RRF fusion.
+
+        Provides dramatically better results than keyword matching:
+        - Finds semantically related content ("cost of living" → "inflation")
+        - Cross-language understanding (Hebrew query → English results)
+        - BM25 catches exact terms that embeddings might miss
+        - Optional cross-encoder reranking for maximum precision
+        """
+        logger.info(f"Using HYBRID search: query={query[:30]}...")
+
+        search_scope = "both" if scope in ("edges", "both") else "nodes"
+        results = self.hybrid_search.search(
+            graph_id=graph_id,
+            query=query,
+            limit=limit,
+            scope=search_scope,
+            rerank=True,
+        )
+
+        facts = []
+        edges_result = []
+        nodes_result = []
+
+        for r in results:
+            if r.source_type == "edge":
+                fact = r.metadata.get("fact", r.text)
+                if fact:
+                    facts.append(fact)
+                edges_result.append({
+                    "uuid": r.id,
+                    "name": r.name,
+                    "fact": fact,
+                    "source_node_uuid": r.metadata.get("source_id", ""),
+                    "target_node_uuid": r.metadata.get("target_id", ""),
+                })
+            elif r.source_type == "node":
+                summary = r.metadata.get("summary", "")
+                nodes_result.append({
+                    "uuid": r.id,
+                    "name": r.name,
+                    "labels": [r.metadata.get("label", "Entity")],
+                    "summary": summary,
+                })
+                if summary:
+                    facts.append(f"[{r.name}]: {summary}")
+
+        logger.info(f"Hybrid search: found {len(facts)} facts (semantic+BM25+rerank)")
+
+        return SearchResult(
+            facts=facts,
+            edges=edges_result,
+            nodes=nodes_result,
+            query=query,
+            total_count=len(facts)
+        )
+
+    def ensure_hybrid_index(self, graph_id: str) -> bool:
+        """Build hybrid search index for a graph if not already indexed."""
+        if not self.hybrid_search:
+            return False
+        if self.hybrid_search.is_indexed(graph_id):
+            return True
+
+        try:
+            nodes = [n.to_dict() if hasattr(n, 'to_dict') else n
+                     for n in self.get_all_nodes(graph_id)]
+            edges = [e.to_dict() if hasattr(e, 'to_dict') else e
+                     for e in self.get_all_edges(graph_id)]
+
+            # Convert NodeInfo/EdgeInfo to dicts for indexing
+            node_dicts = []
+            for n in nodes:
+                node_dicts.append({
+                    "id": n.get("uuid", n.get("id", "")),
+                    "name": n.get("name", ""),
+                    "label": (n.get("labels", ["Entity"]) or ["Entity"])[0],
+                    "summary": n.get("summary", ""),
+                    "facts": n.get("attributes", {}).get("facts", []),
+                })
+            edge_dicts = []
+            for e in edges:
+                edge_dicts.append({
+                    "id": e.get("uuid", e.get("id", "")),
+                    "source_id": e.get("source_node_uuid", e.get("source_id", "")),
+                    "target_id": e.get("target_node_uuid", e.get("target_id", "")),
+                    "relation": e.get("name", e.get("relation", "")),
+                    "fact": e.get("fact", ""),
+                })
+
+            result = self.hybrid_search.index_graph(graph_id, node_dicts, edge_dicts)
+            logger.info("Hybrid index built: %s", result)
+            return True
+        except Exception as e:
+            logger.error("Failed to build hybrid index: %s", e)
+            return False
 
     def get_all_nodes(self, graph_id: str) -> List[NodeInfo]:
         """

@@ -1,0 +1,137 @@
+# LLM Router Configuration
+# Maps task types to optimal providers for cost/quality balance.
+# See .env.example for required API keys.
+
+providers:
+  groq:
+    type: openai_compatible
+    base_url: "https://api.groq.com/openai/v1"
+    api_key_env: GROQ_API_KEY
+    rate_limit_rps: 30
+    pricing_per_1m:
+      input: 0.59
+      output: 0.79
+
+  openai:
+    type: openai
+    api_key_env: OPENAI_API_KEY
+    base_url: "https://api.openai.com/v1"
+    rate_limit_rps: 500
+    pricing_per_1m:
+      input: 0.15
+      output: 0.60
+
+  anthropic:
+    type: anthropic
+    api_key_env: LLM_API_KEY
+    rate_limit_rps: 50
+    pricing_per_1m:
+      input: 15.0
+      output: 75.0
+
+  anthropic_sonnet:
+    type: anthropic
+    api_key_env: LLM_API_KEY
+    rate_limit_rps: 50
+    pricing_per_1m:
+      input: 3.0
+      output: 15.0
+
+  vllm:
+    type: openai_compatible
+    base_url_env: VLLM_BASE_URL
+    api_key: "dummy"
+    rate_limit_rps: 100
+    pricing_per_1m:
+      input: 0
+      output: 0
+
+routing:
+  agent_decision:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    fallback:
+      - { provider: openai, model: "gpt-4o-mini" }
+    temperature: 0.7
+    max_tokens: 256
+
+  report:
+    primary: { provider: anthropic, model: "claude-opus-4-6" }
+    fallback:
+      - { provider: openai, model: "gpt-4o" }
+    temperature: 0.5
+    max_tokens: 4096
+
+  ontology:
+    primary: { provider: anthropic_sonnet, model: "claude-sonnet-4-5-20250929" }
+    fallback:
+      - { provider: openai, model: "gpt-4o" }
+    temperature: 0.2
+    max_tokens: 2048
+
+  extraction:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    fallback:
+      - { provider: openai, model: "gpt-4o-mini" }
+    temperature: 0.2
+    max_tokens: 2048
+
+  persona:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    fallback:
+      - { provider: openai, model: "gpt-4o-mini" }
+    temperature: 0.8
+    max_tokens: 512
+
+  # ===== KnessetSim Routes =====
+  knesset_decision:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    fallback:
+      - { provider: openai, model: "gpt-4o-mini" }
+    temperature: 0.7
+    max_tokens: 512
+
+  knesset_persona:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    fallback:
+      - { provider: openai, model: "gpt-4o-mini" }
+    temperature: 0.8
+    max_tokens: 1024
+
+  knesset_analysis:
+    primary: { provider: anthropic_sonnet, model: "claude-sonnet-4-5-20250929" }
+    fallback:
+      - { provider: openai, model: "gpt-4o" }
+    temperature: 0.3
+    max_tokens: 4096
+
+  knesset_chat:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    fallback:
+      - { provider: anthropic_sonnet, model: "claude-sonnet-4-5-20250929" }
+    temperature: 0.8
+    max_tokens: 1024
+
+  # ===== KnessetDB Data Pipeline Routes =====
+  knesset_extraction:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    fallback:
+      - { provider: openai, model: "gpt-4o-mini" }
+    temperature: 0.1
+    max_tokens: 2048
+
+  knesset_topic_classification:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    temperature: 0.1
+    max_tokens: 256
+
+  knesset_sentiment:
+    primary: { provider: groq, model: "llama-3.3-70b-versatile" }
+    temperature: 0.1
+    max_tokens: 128
+
+  default:
+    primary: { provider: anthropic_sonnet, model: "claude-sonnet-4-5-20250929" }
+    fallback:
+      - { provider: openai, model: "gpt-4o-mini" }
+    temperature: 0.7
+    max_tokens: 4096

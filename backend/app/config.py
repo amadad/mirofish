@@ -60,6 +60,21 @@ class Config:
     LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "gpt-4o-mini")
     LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "")
 
+    # Multi-LLM routing
+    LLM_ROUTER_CONFIG = os.environ.get("LLM_ROUTER_CONFIG", "")
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "")
+
+    # Search config
+    EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
+    RERANKER_MODEL = os.environ.get("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+    ENABLE_RERANKING = _get_bool_env("ENABLE_RERANKING", True)
+
+    # Pinecone config
+    PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", "")
+    PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "mirofish")
+
     # Graph storage config
     GRAPH_BACKEND = os.environ.get("GRAPH_BACKEND", "kuzu").lower()
     KUZU_DB_PATH = _resolve_path(os.path.join(os.path.dirname(__file__), "../data/kuzu_db"), "KUZU_DB_PATH")
