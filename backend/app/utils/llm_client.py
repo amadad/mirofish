@@ -63,6 +63,8 @@ class LLMClient:
         model_lower = (self.model or "").lower()
         base_lower = (self.base_url or "").lower()
 
+        if "nexa" in model_lower or "nexa" in base_lower or "11434" in base_lower:
+            return "nexa"
         if any(k in model_lower for k in ["claude", "anthropic"]):
             return "anthropic"
         if "anthropic" in base_lower:
