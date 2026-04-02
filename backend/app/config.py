@@ -63,6 +63,9 @@ def _get_llm_api_key() -> str:
         return explicit
 
     provider = (os.environ.get('LLM_PROVIDER', '') or '').strip().lower()
+    if provider == 'nexa':
+        # Nexa local server does not require a real key, but OpenAI SDK needs a string
+        return os.environ.get('NEXA_API_KEY', '') or 'nexa'
     if provider == 'anthropic':
         return os.environ.get('ANTHROPIC_API_KEY', '')
 
@@ -89,7 +92,8 @@ class Config:
     LLM_API_KEY = _get_llm_api_key()
     LLM_BASE_URL = _get_env_or_default('LLM_BASE_URL', 'https://api.openai.com/v1')
     LLM_MODEL_NAME = _get_env_or_default('LLM_MODEL_NAME', 'gpt-4o-mini')
-    LLM_PROVIDER = os.environ.get('LLM_PROVIDER', '')  # 'openai', 'anthropic', 'claude-cli', 'codex-cli'
+    # Providers: openai | anthropic | claude-cli | codex-cli | nexa (OpenAI-compatible local server)
+    LLM_PROVIDER = os.environ.get('LLM_PROVIDER', '')
 
     # Graph storage config
     GRAPH_BACKEND = os.environ.get("GRAPH_BACKEND", "kuzu").lower()
@@ -129,8 +133,8 @@ class Config:
     def validate(cls):
         """Validate required configuration."""
         errors = []
-        if cls.LLM_PROVIDER not in ("claude-cli", "codex-cli") and not cls.LLM_API_KEY:
-            errors.append("LLM_API_KEY not configured (set LLM_PROVIDER=claude-cli or codex-cli to use CLI instead)")
+        if cls.LLM_PROVIDER not in ("claude-cli", "codex-cli", "nexa") and not cls.LLM_API_KEY:
+            errors.append("LLM_API_KEY not configured (set LLM_PROVIDER=claude-cli/codex-cli, or use nexa/local provider without a key)")
         if cls.GRAPH_BACKEND not in {"kuzu", "json"}:
             errors.append("GRAPH_BACKEND must be either 'kuzu' or 'json'")
         return errors
