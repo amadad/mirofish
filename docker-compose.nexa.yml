@@ -1,0 +1,20 @@
+services:
+  mirofish:
+    depends_on: {}
+    networks:
+      - default
+    environment:
+      LLM_PROVIDER: openai
+      LLM_BASE_URL: http://host.docker.internal:11434/v1
+      LLM_API_KEY: nexa
+      LLM_MODEL_NAME: NexaAI/Llama3.2-3B-NPU-Turbo
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/data:/app/backend/data
+    labels: {}
+
+networks:
+  default:
+    name: mirofish-nexa

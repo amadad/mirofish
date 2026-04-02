@@ -4,6 +4,8 @@ A swarm intelligence prediction engine. Upload documents describing any scenario
 
 **Live:** [synth.scty.org](https://synth.scty.org)
 
+Modified by Viswa.
+
 > Fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) — fully translated to English, local graph storage with embedded KuzuDB by default, Claude/Codex CLI support added.
 
 ## What it does
