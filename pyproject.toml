@@ -1,0 +1,45 @@
+[project]
+name = "mirofish-backend"
+version = "0.1.0"
+description = "MiroFish - A Simple & Universal Swarm Intelligence Engine, Predict Anything"
+requires-python = ">=3.11,<3.13"
+license = { text = "AGPL-3.0" }
+authors = [
+    { name = "MiroFish Team" }
+]
+
+dependencies = [
+    # OpenAI SDK (required by camel-ai/oasis simulation engine)
+    "openai>=1.0.0",
+
+    # OASIS social media simulation
+    "camel-oasis==0.2.5",
+    "camel-ai==0.2.78",
+
+    # File processing
+    "PyMuPDF>=1.24.0",
+    # Encoding detection (supports non-UTF-8 text files)
+    "charset-normalizer>=3.0.0",
+    "chardet>=5.0.0",
+
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+mirofish = "app.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

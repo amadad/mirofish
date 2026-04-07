@@ -2,13 +2,10 @@
 .DS_Store
 Thumbs.db
 
-# 环境变量（保护敏感信息）
+# Environment
 .env
 .env.local
 .env.*.local
-.env.development
-.env.test
-.env.production
 
 # Python
 __pycache__/
@@ -24,38 +21,25 @@ ENV/
 dist/
 build/
 
-# Node.js
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# 测试
+# Test
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Cursor
+# Cursor / Claude
 .cursor/
 .claude/
 
-# 文档与测试程序
-mydoc/
-mytest/
-
-# 日志文件
-backend/logs/
+# Logs
+logs/
 *.log
 
-# 上传文件
-backend/uploads/
+# Runtime data
 uploads/
-
-# Docker 数据
 data/
