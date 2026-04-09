@@ -420,44 +420,24 @@ class SimulationConfigGenerator:
 
         return "\n".join(lines)
 
-    def _call_llm_with_retry(self, prompt: str, system_prompt: str) -> Dict[str, Any]:
-        """LLM call with retry logic and JSON repair"""
-        import re
+    def _call_llm_json(self, prompt: str, system_prompt: str) -> Dict[str, Any]:
+        """LLM call with JSON repair. Retry is handled by LLMClient."""
+        content = self.llm.chat(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.7,
+        )
 
-        max_attempts = 3
-        last_error = None
-
-        for attempt in range(max_attempts):
-            try:
-                content = self.llm.chat(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1),
-                )
-
-                # Try to parse JSON
-                try:
-                    return json.loads(content)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"JSON parsing failed (attempt {attempt+1}): {str(e)[:80]}")
-
-                    # Try to fix JSON
-                    fixed = self._try_fix_config_json(content)
-                    if fixed:
-                        return fixed
-
-                    last_error = e
-
-            except Exception as e:
-                logger.warning(f"LLM call failed (attempt {attempt+1}): {str(e)[:80]}")
-                last_error = e
-                import time
-                time.sleep(2 * (attempt + 1))
-
-        raise last_error or Exception("LLM call failed")
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            fixed = self._try_fix_config_json(content)
+            if fixed:
+                return fixed
+            raise
 
     def _fix_truncated_json(self, content: str) -> str:
         """Fix truncated JSON"""
@@ -567,7 +547,7 @@ Field descriptions:
         system_prompt = "You are a social media simulation expert. Return pure JSON format. Time configuration should follow realistic daily activity patterns for the target population."
 
         try:
-            return self._call_llm_with_retry(prompt, system_prompt)
+            return self._call_llm_json(prompt, system_prompt)
         except Exception as e:
             logger.warning(f"Time config LLM generation failed: {e}, using default config")
             return self._get_default_time_config(num_entities)
@@ -683,7 +663,7 @@ Return JSON format (no markdown):
         system_prompt = "You are a public opinion analysis expert. Return pure JSON format. Note that poster_type must exactly match available entity types."
 
         try:
-            return self._call_llm_with_retry(prompt, system_prompt)
+            return self._call_llm_json(prompt, system_prompt)
         except Exception as e:
             logger.warning(f"Event config LLM generation failed: {e}, using default config")
             return {
@@ -846,7 +826,7 @@ Return JSON format (no markdown):
         system_prompt = "You are a social media behavior analysis expert. Return pure JSON. Configuration should follow realistic daily activity patterns for the target population."
 
         try:
-            result = self._call_llm_with_retry(prompt, system_prompt)
+            result = self._call_llm_json(prompt, system_prompt)
             llm_configs = {cfg["agent_id"]: cfg for cfg in result.get("agent_configs", [])}
         except Exception as e:
             logger.warning(f"Agent config batch LLM generation failed: {e}, using rule-based generation")

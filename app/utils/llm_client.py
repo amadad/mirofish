@@ -5,12 +5,16 @@ LLM Client — CLI-only providers (Claude Code, Codex).
 import json
 import re
 import subprocess
+import time
 from typing import Optional, Dict, Any, List
 
 from ..config import Config
 from .logger import get_logger
 
 logger = get_logger('mirofish.llm_client')
+
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0  # seconds
 
 
 class LLMClient:
@@ -48,10 +52,20 @@ class LLMClient:
         max_tokens: int = 4096,
         response_format: Optional[Dict] = None
     ) -> str:
-        """Send a chat request via CLI."""
-        if self.provider == "codex-cli":
-            return self._chat_codex_cli(messages, temperature, max_tokens, response_format)
-        return self._chat_claude_cli(messages, temperature, max_tokens, response_format)
+        """Send a chat request via CLI with automatic retry on transient failures."""
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                if self.provider == "codex-cli":
+                    return self._chat_codex_cli(messages, temperature, max_tokens, response_format)
+                return self._chat_claude_cli(messages, temperature, max_tokens, response_format)
+            except RuntimeError as exc:
+                last_error = exc
+                if attempt < MAX_RETRIES - 1:
+                    delay = RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(f"LLM call failed (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {delay}s: {exc}")
+                    time.sleep(delay)
+        raise last_error
 
     def _chat_claude_cli(
         self,

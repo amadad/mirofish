@@ -116,6 +116,21 @@ Extract all entities and relationships from the text above that match the ontolo
             entities = result.get("entities", [])
             relationships = result.get("relationships", [])
 
+            # Validate entities against ontology types
+            valid_types = {
+                et.get("name", "").lower()
+                for et in ontology.get("entity_types", [])
+            }
+            if valid_types:
+                before = len(entities)
+                entities = [
+                    e for e in entities
+                    if e.get("type", "").lower() in valid_types
+                ]
+                dropped = before - len(entities)
+                if dropped:
+                    logger.debug(f"Filtered {dropped} entities with types not in ontology")
+
             logger.debug(f"Extracted {len(entities)} entities, {len(relationships)} relationships")
             return {"entities": entities, "relationships": relationships}
 
@@ -143,7 +158,14 @@ Extract all entities and relationships from the text above that match the ontolo
         """
         all_entities = {}  # name_lower -> entity dict
         all_relationships = []  # list of relationship dicts
+        seen_rels = set()  # (source, target, type) for O(1) dedup
         total = len(chunks)
+
+        # Precompute valid entity types for validation (once, not per chunk)
+        valid_types = {
+            et.get("name", "").lower()
+            for et in ontology.get("entity_types", [])
+        }
 
         for i, chunk in enumerate(chunks):
             if progress_callback:
@@ -154,47 +176,48 @@ Extract all entities and relationships from the text above that match the ontolo
 
             result = self.extract(chunk, ontology)
 
-            # Merge entities (deduplicate by name)
             for entity in result.get("entities", []):
                 name = entity.get("name", "").strip()
                 if not name:
                     continue
                 key = name.lower()
                 if key in all_entities:
-                    # Merge: keep longer summary, combine types
                     existing = all_entities[key]
                     if len(entity.get("summary", "")) > len(existing.get("summary", "")):
                         existing["summary"] = entity["summary"]
-                    # Keep the more specific type if different
                     if entity.get("type") and entity["type"] != existing.get("type"):
                         existing.setdefault("additional_types", []).append(entity["type"])
                 else:
                     all_entities[key] = entity
 
-            # Collect relationships (deduplicate by source+target+type)
             for rel in result.get("relationships", []):
                 source = rel.get("source", "").strip().lower()
                 target = rel.get("target", "").strip().lower()
                 rel_type = rel.get("type", "").strip().lower()
                 if not source or not target:
                     continue
-
-                # Check for duplicate
-                is_dup = any(
-                    r.get("source", "").strip().lower() == source and
-                    r.get("target", "").strip().lower() == target and
-                    r.get("type", "").strip().lower() == rel_type
-                    for r in all_relationships
-                )
-                if not is_dup:
+                rel_key = (source, target, rel_type)
+                if rel_key not in seen_rels:
+                    seen_rels.add(rel_key)
                     all_relationships.append(rel)
 
+        # Filter relationships to those whose source and target exist
+        entity_keys = set(all_entities.keys())
+        valid_rels = [
+            r for r in all_relationships
+            if r.get("source", "").strip().lower() in entity_keys
+            and r.get("target", "").strip().lower() in entity_keys
+        ]
+        dropped_rels = len(all_relationships) - len(valid_rels)
+        if dropped_rels:
+            logger.debug(f"Filtered {dropped_rels} relationships with missing source/target")
+
         logger.info(f"Batch extraction complete: {len(all_entities)} unique entities, "
-                   f"{len(all_relationships)} unique relationships from {total} chunks")
+                   f"{len(valid_rels)} unique relationships from {total} chunks")
 
         return {
             "entities": list(all_entities.values()),
-            "relationships": all_relationships,
+            "relationships": valid_rels,
         }
 
     def _format_entity_types(self, ontology: Dict[str, Any]) -> str:

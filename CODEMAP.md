@@ -1,6 +1,6 @@
 # CODEMAP
 
-Navigation map for the MiroFish codebase. 62 Python files.
+Navigation map for the MiroFish codebase. 63 Python files.
 
 ## Entry point
 
@@ -37,11 +37,11 @@ Heavy business logic:
 - `oasis_profile_generator.py` — Agent persona generation
 - `simulation_config_generator.py` — Simulation config assembly
 - `simulation_manager.py` — Simulation lifecycle state machine
-- `simulation_runner.py` — Subprocess spawning, IPC, monitoring (~1480 lines)
+- `simulation_runner.py` — Subprocess spawning, IPC, monitoring, atexit cleanup, action caching (~1470 lines)
 - `simulation_ipc.py` — File-based IPC with OASIS processes
 - `simulation_platforms.py` — Twitter/Reddit data normalization
-- `report_agent.py` — Report generation: `generate_report_fast()` (single-pass, default) + legacy ReACT loop (~2800 lines, largest file)
-- `graph_tools.py` — Search, interview, analysis helpers (~2100 lines)
+- `report_agent.py` — Single-pass report generation + ReportManager persistence (~450 lines)
+- `graph_tools.py` — Graph queries + agent interview (~570 lines)
 - `graph_memory_updater.py` — Post-simulation graph updates
 - `text_processor.py` — Encoding detection
 
@@ -58,7 +58,7 @@ Persistence adapters (thin wrappers over filesystem):
 
 ## Utils (`app/utils/`)
 
-- `llm_client.py` — CLI-only LLM client (claude-cli, codex-cli)
+- `llm_client.py` — CLI-only LLM client with retry (claude-cli, codex-cli)
 - `oasis_llm.py` — CAMEL/OASIS CLI bridge (fakes OpenAI ChatCompletion for simulation engine)
 - `file_parser.py` — PDF/text extraction
 - `logger.py` — Structured logging

@@ -1,6 +1,6 @@
 # MiroFish
 
-A swarm intelligence prediction engine. Feed it documents describing any scenario, and MiroFish simulates thousands of AI agents reacting on social media to predict how events will unfold.
+A social simulation scenario engine. Feed it documents describing any scenario, and MiroFish simulates AI agents reacting on social media to explore how events might unfold. Designed for agent-driven workflows — outputs include a machine-readable `verdict.json` alongside the full report.
 
 > Fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) — fully translated to English, CLI-only, Claude/Codex CLI support added.
 
@@ -10,7 +10,7 @@ A swarm intelligence prediction engine. Feed it documents describing any scenari
 2. **Describe what to predict** — natural language requirement
 3. **MiroFish builds a world** — extracts entities and relationships into a knowledge graph, generates AI agent personas with distinct personalities
 4. **Agents simulate social media** — dual-platform simulation (Twitter + Reddit) where agents post, reply, like, argue, and follow each other
-5. **Get a prediction report** — AI analyzes all simulation data and produces structured findings
+5. **Get a prediction report** — AI analyzes all simulation data and produces a report + machine-readable verdict with confidence scores and signals
 
 ## Quick start
 
@@ -82,6 +82,7 @@ uploads/runs/<run_id>/
     actions.jsonl
     config.json
   report/
+    verdict.json
     summary.json
     report.md
   visuals/

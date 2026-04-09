@@ -3,6 +3,7 @@ OASIS Simulation Runner
 Runs simulations in the background and records each Agent's actions, with real-time status monitoring
 """
 
+import atexit
 import os
 import sys
 import json
@@ -217,10 +218,9 @@ class SimulationRunner:
     _action_queues: Dict[str, Queue] = {}
     _monitor_threads: Dict[str, threading.Thread] = {}
     _stdout_files: Dict[str, Any] = {}  # Store stdout file handles
-    _stderr_files: Dict[str, Any] = {}  # Store stderr file handles
-    
-    # Graph memory update configuration
-    _graph_memory_enabled: Dict[str, bool] = {}  # simulation_id -> enabled
+
+    # Action cache for completed simulations (avoids re-reading JSONL on every call)
+    _action_cache: Dict[str, List] = {}
     
     @classmethod
     def get_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
@@ -370,16 +370,11 @@ class SimulationRunner:
         if enable_graph_memory_update:
             if not graph_id:
                 raise ValueError("graph_id is required when graph memory update is enabled")
-            
             try:
                 GraphMemoryManager.create_updater(simulation_id, graph_id)
-                cls._graph_memory_enabled[simulation_id] = True
                 logger.info(f"Graph memory update enabled: simulation_id={simulation_id}, graph_id={graph_id}")
             except Exception as e:
                 logger.error(f"Failed to create graph memory updater: {e}")
-                cls._graph_memory_enabled[simulation_id] = False
-        else:
-            cls._graph_memory_enabled[simulation_id] = False
         
         # Determine which script to run (scripts are in scripts/ directory)
         if platform == "twitter":
@@ -403,50 +398,37 @@ class SimulationRunner:
         cls._action_queues[simulation_id] = action_queue
         
         # Start simulation process
+        main_log_file = None
         try:
-            # Build run command using full paths
-            # New log structure:
-            #   twitter/actions.jsonl - Twitter action log
-            #   reddit/actions.jsonl  - Reddit action log
-            #   simulation.log        - Main process log
-            
             cmd = [
-                sys.executable,  # Python interpreter
+                sys.executable,
                 script_path,
-                "--config", config_path,  # Use full configuration file path
+                "--config", config_path,
             ]
-            
-            # If max rounds specified, add to command line arguments
+
             if max_rounds is not None and max_rounds > 0:
                 cmd.extend(["--max-rounds", str(max_rounds)])
-            
-            # Create main log file to avoid process blocking due to stdout/stderr pipe buffer full
+
             main_log_path = os.path.join(sim_dir, "simulation.log")
             main_log_file = open(main_log_path, 'w', encoding='utf-8')
-            
-            # Set subprocess environment variables to ensure UTF-8 encoding on Windows
-            # This fixes issues where third-party libraries (e.g. OASIS) read files without specifying encoding
+
             env = os.environ.copy()
-            env['PYTHONUTF8'] = '1'  # Python 3.7+ support, makes all open() default to UTF-8
-            env['PYTHONIOENCODING'] = 'utf-8'  # Ensure stdout/stderr use UTF-8
-            
-            # Set working directory to simulation directory (databases and other files are generated here)
-            # Use start_new_session=True to create a new process group, ensuring all child processes can be terminated via os.killpg
+            env['PYTHONUTF8'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'
+
             process = subprocess.Popen(
                 cmd,
                 cwd=sim_dir,
                 stdout=main_log_file,
-                stderr=subprocess.STDOUT,  # stderr also writes to the same file
+                stderr=subprocess.STDOUT,
                 text=True,
-                encoding='utf-8',  # Explicitly specify encoding
+                encoding='utf-8',
                 bufsize=1,
-                env=env,  # Pass environment variables with UTF-8 settings
-                start_new_session=True,  # Create new process group to ensure all related processes can be terminated on server shutdown
+                env=env,
+                start_new_session=True,
             )
-            
-            # Save file handles for later cleanup
+
             cls._stdout_files[simulation_id] = main_log_file
-            cls._stderr_files[simulation_id] = None  # Separate stderr no longer needed
             
             state.process_pid = process.pid
             state.runner_status = RunnerStatus.RUNNING
@@ -465,11 +447,17 @@ class SimulationRunner:
             logger.info(f"Simulation started successfully: {simulation_id}, pid={process.pid}, platform={platform}")
             
         except Exception as e:
+            # Close log file handle if Popen failed before monitor thread could take over
+            if main_log_file and simulation_id not in cls._processes:
+                try:
+                    main_log_file.close()
+                except Exception:
+                    pass
             state.runner_status = RunnerStatus.FAILED
             state.error = str(e)
             cls._save_run_state(state)
             raise
-        
+
         return state
     
     @classmethod
@@ -546,18 +534,19 @@ class SimulationRunner:
             cls._save_run_state(state)
         
         finally:
-            # Stop graph memory updater
-            if cls._graph_memory_enabled.get(simulation_id, False):
-                try:
+            # Stop graph memory updater if one was created
+            try:
+                updater = GraphMemoryManager.get_updater(simulation_id)
+                if updater:
                     GraphMemoryManager.stop_updater(simulation_id)
                     logger.info(f"Graph memory update stopped: simulation_id={simulation_id}")
-                except Exception as e:
-                    logger.error(f"Failed to stop graph memory updater: {e}")
-                cls._graph_memory_enabled.pop(simulation_id, None)
+            except Exception as e:
+                logger.error(f"Failed to stop graph memory updater: {e}")
 
             # Clean up process resources
             cls._processes.pop(simulation_id, None)
             cls._action_queues.pop(simulation_id, None)
+            cls._monitor_threads.pop(simulation_id, None)
             
             # Close log file handles
             if simulation_id in cls._stdout_files:
@@ -566,12 +555,6 @@ class SimulationRunner:
                 except Exception:
                     pass
                 cls._stdout_files.pop(simulation_id, None)
-            if simulation_id in cls._stderr_files and cls._stderr_files[simulation_id]:
-                try:
-                    cls._stderr_files[simulation_id].close()
-                except Exception:
-                    pass
-                cls._stderr_files.pop(simulation_id, None)
     
     @classmethod
     def _read_action_log(
@@ -594,10 +577,7 @@ class SimulationRunner:
             New read position
         """
         # Check if graph memory update is enabled
-        graph_memory_enabled = cls._graph_memory_enabled.get(state.simulation_id, False)
-        graph_updater = None
-        if graph_memory_enabled:
-            graph_updater = GraphMemoryManager.get_updater(state.simulation_id)
+        graph_updater = GraphMemoryManager.get_updater(state.simulation_id)
         
         try:
             with open(log_path, 'r', encoding='utf-8') as f:
@@ -802,14 +782,13 @@ class SimulationRunner:
         state.completed_at = datetime.now().isoformat()
         cls._save_run_state(state)
         
-        # Stop graph memory updater
-        if cls._graph_memory_enabled.get(simulation_id, False):
-            try:
+        # Stop graph memory updater if one was created
+        try:
+            updater = GraphMemoryManager.get_updater(simulation_id)
+            if updater:
                 GraphMemoryManager.stop_updater(simulation_id)
-                logger.info(f"Graph memory update stopped: simulation_id={simulation_id}")
-            except Exception as e:
-                logger.error(f"Failed to stop graph memory updater: {e}")
-            cls._graph_memory_enabled.pop(simulation_id, None)
+        except Exception as e:
+            logger.error(f"Failed to stop graph memory updater: {e}")
 
         logger.info(f"Simulation stopped: {simulation_id}")
         return state
@@ -892,57 +871,60 @@ class SimulationRunner:
         round_num: Optional[int] = None
     ) -> List[AgentAction]:
         """
-        Get complete action history for all platforms (no pagination limit)
+        Get complete action history for all platforms (no pagination limit).
 
-        Args:
-            simulation_id: Simulation ID
-            platform: Filter by platform (twitter/reddit)
-            agent_id: Filter by Agent
-            round_num: Filter by round
-
-        Returns:
-            Complete action list (sorted by timestamp, newest first)
+        Uses in-memory cache for completed simulations to avoid re-reading
+        JSONL files on every call (get_timeline, get_agent_stats, and the CLI
+        all call this independently).
         """
         platform = normalize_content_platform(platform, allow_none=True)
+        no_filters = platform is None and agent_id is None and round_num is None
+
+        # Return cached actions for completed simulations (unfiltered calls only)
+        if no_filters and simulation_id in cls._action_cache:
+            return list(cls._action_cache[simulation_id])
+
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         actions = []
-        
-        # Read Twitter action file (automatically set platform to twitter based on file path)
+
         twitter_actions_log = os.path.join(sim_dir, "twitter", "actions.jsonl")
         if not platform or platform == "twitter":
             actions.extend(cls._read_actions_from_file(
                 twitter_actions_log,
-                default_platform="twitter",  # Auto-fill platform field
+                default_platform="twitter",
                 platform_filter=platform,
-                agent_id=agent_id, 
+                agent_id=agent_id,
                 round_num=round_num
             ))
-        
-        # Read Reddit action file (automatically set platform to reddit based on file path)
+
         reddit_actions_log = os.path.join(sim_dir, "reddit", "actions.jsonl")
         if not platform or platform == "reddit":
             actions.extend(cls._read_actions_from_file(
                 reddit_actions_log,
-                default_platform="reddit",  # Auto-fill platform field
+                default_platform="reddit",
                 platform_filter=platform,
                 agent_id=agent_id,
                 round_num=round_num
             ))
-        
-        # If per-platform files don't exist, try reading old single-file format
+
         if not actions:
             actions_log = os.path.join(sim_dir, "actions.jsonl")
             actions = cls._read_actions_from_file(
                 actions_log,
-                default_platform=None,  # Old format files should have a platform field
+                default_platform=None,
                 platform_filter=platform,
                 agent_id=agent_id,
                 round_num=round_num
             )
-        
-        # Sort by timestamp (newest first)
+
         actions.sort(key=lambda x: x.timestamp, reverse=True)
-        
+
+        # Cache unfiltered results for completed simulations
+        if no_filters:
+            state = cls.get_run_state(simulation_id)
+            if state and state.runner_status in (RunnerStatus.COMPLETED, RunnerStatus.STOPPED, RunnerStatus.FAILED):
+                cls._action_cache[simulation_id] = actions
+
         return actions
     
     @classmethod
@@ -1214,21 +1196,15 @@ class SimulationRunner:
             return
         cls._cleanup_done = True
         
-        # Check if there is anything to clean up (avoid printing useless logs for empty processes)
-        has_processes = bool(cls._processes)
-        has_updaters = bool(cls._graph_memory_enabled)
-        
-        if not has_processes and not has_updaters:
-            return  # Nothing to clean up, return silently
-        
+        if not cls._processes:
+            return
+
         logger.info("Cleaning up all simulation processes...")
-        
-        # First stop all graph memory updaters (stop_all prints logs internally)
+
         try:
             GraphMemoryManager.stop_all()
         except Exception as e:
             logger.error(f"Failed to stop graph memory updaters: {e}")
-        cls._graph_memory_enabled.clear()
 
         # Copy dict to avoid modification during iteration
         processes = list(cls._processes.items())
@@ -1289,18 +1265,12 @@ class SimulationRunner:
                 pass
         cls._stdout_files.clear()
         
-        for simulation_id, file_handle in list(cls._stderr_files.items()):
-            try:
-                if file_handle:
-                    file_handle.close()
-            except Exception:
-                pass
-        cls._stderr_files.clear()
         
         # Clean up in-memory state
         cls._processes.clear()
         cls._action_queues.clear()
-        
+        cls._action_cache.clear()
+
         logger.info("Simulation process cleanup completed")
     
     # ============== Interview Features ==============
@@ -1492,5 +1462,9 @@ class SimulationRunner:
         # If multiple platforms were queried, limit total count
         if len(platforms) > 1 and len(results) > limit:
             results = results[:limit]
-        
+
         return results
+
+
+# Register cleanup handler so child processes are terminated on CLI exit
+atexit.register(SimulationRunner.cleanup_all_simulations)

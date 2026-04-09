@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import logging
 
+from .utils.logger import get_logger
 from .cli_display import PipelineDisplay
 from .config import Config
 from .core.task_manager import TaskManager, TaskStatus
@@ -23,6 +24,8 @@ from .services.graph_db import GraphDatabase
 from .services.simulation_manager import SimulationManager
 from .services.simulation_runner import RunnerStatus, SimulationRunner
 from .visual_snapshots import generate_visual_snapshots
+
+logger = get_logger('mirofish.cli')
 
 DEFAULT_PROJECT_NAME = "MiroFish Run"
 DEFAULT_PARALLEL_PROFILE_COUNT = 5
@@ -210,6 +213,49 @@ def _refresh_run_manifest(store: RunStore, run_id: str) -> Dict[str, Any]:
     return manifest
 
 
+def _generate_verdict(report_markdown: str, requirement: str) -> Dict[str, Any]:
+    """Generate a machine-readable verdict from the report for agent consumption."""
+    from .utils.llm_client import LLMClient
+
+    try:
+        llm = LLMClient()
+        result = llm.chat_json(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You extract a structured verdict from a simulation report. "
+                        "Return JSON with exactly these fields:\n"
+                        '- "prediction": one-sentence prediction (max 100 words)\n'
+                        '- "confidence": float 0.0-1.0 (how confident the simulation evidence is)\n'
+                        '- "key_dynamics": array of 3-5 short strings describing the main dynamics observed\n'
+                        '- "signals": array of objects with {"signal": string, "direction": "positive"|"negative"|"mixed", "strength": float 0.0-1.0}\n'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Requirement: {requirement}\n\nReport:\n{report_markdown[:6000]}",
+                },
+            ],
+            temperature=0.2,
+        )
+        # Ensure required fields exist with defaults
+        return {
+            "prediction": result.get("prediction", "No prediction generated"),
+            "confidence": min(1.0, max(0.0, float(result.get("confidence", 0.5)))),
+            "key_dynamics": result.get("key_dynamics", [])[:5],
+            "signals": result.get("signals", [])[:8],
+        }
+    except Exception as e:
+        logger.warning(f"Verdict generation failed (non-fatal): {e}")
+        return {
+            "prediction": "Verdict generation failed",
+            "confidence": 0.0,
+            "key_dynamics": [],
+            "signals": [],
+        }
+
+
 def _collect_run_outputs(
     store: RunStore,
     manifest: Dict[str, Any],
@@ -248,6 +294,14 @@ def _collect_run_outputs(
         store.write_text(run_id, "report/report.md", report_markdown)
         store.record_artifact(run_id, "report_markdown", "report/report.md")
 
+    # Generate machine-readable verdict for agent consumption
+    if report_markdown:
+        verdict = _generate_verdict(report_markdown, manifest.get("requirement", ""))
+    else:
+        verdict = {"prediction": "No report available", "confidence": 0.0, "key_dynamics": [], "signals": []}
+    store.write_json(run_id, "report/verdict.json", verdict)
+    store.record_artifact(run_id, "verdict", "report/verdict.json")
+
     summary = {
         "run_id": manifest["run_id"],
         "project_id": manifest.get("project_id"),
@@ -259,6 +313,7 @@ def _collect_run_outputs(
         "rounds": len(timeline),
         "total_actions": sum(item.get("total_actions", 0) for item in timeline),
         "top_agents": _top_agents(agent_stats, limit=10),
+        "verdict": verdict,
     }
     store.write_json(run_id, "report/summary.json", summary)
     store.record_artifact(run_id, "report_summary", "report/summary.json")
