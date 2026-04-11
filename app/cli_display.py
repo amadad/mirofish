@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from typing import Optional
@@ -77,7 +78,12 @@ class PipelineDisplay:
 
         self._steps = {name: StepState() for name in STEPS}
         self._tick = 0
-        self._console = Console(stderr=True)
+        _no_color = bool(os.environ.get("NO_COLOR")) or not sys.stdout.isatty()
+        self._console = Console(
+            stderr=True,
+            no_color=_no_color,
+            force_terminal=sys.stdout.isatty() and not bool(os.environ.get("NO_COLOR")),
+        )
         self._live: Optional[Live] = None
 
     # -- public API --

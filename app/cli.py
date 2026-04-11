@@ -523,7 +523,16 @@ def _handle_command(args: argparse.Namespace) -> Dict[str, Any]:
     if args.command == "runs" and args.runs_command == "list":
         store = RunStore(root_dir=args.output_dir)
         manifests = [_refresh_run_manifest(store, item["run_id"]) for item in store.list(limit=args.limit)]
-        return {"runs": manifests, "count": len(manifests)}
+        slim = [
+            {
+                "run_id": m.get("run_id"),
+                "status": m.get("status"),
+                "created_at": m.get("created_at"),
+                "artifact_count": len(m.get("artifacts", {})),
+            }
+            for m in manifests
+        ]
+        return {"runs": slim, "count": len(slim)}
     if args.command == "runs" and args.runs_command == "status":
         store = RunStore(root_dir=args.output_dir)
         return _refresh_run_manifest(store, args.run_id)
@@ -554,8 +563,17 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run the full workflow and persist artifacts")
-    run_parser.add_argument("--files", nargs="+", required=True)
-    run_parser.add_argument("--requirement", required=True)
+    run_parser.add_argument(
+        "--files",
+        nargs="+",
+        required=True,
+        help="One or more source files (pdf/md/txt) used to ground the ontology and profiles",
+    )
+    run_parser.add_argument(
+        "--requirement",
+        required=True,
+        help="Plain-English simulation requirement (e.g. 'How would voters react to X?')",
+    )
     run_parser.add_argument("--platform", choices=("parallel", "twitter", "reddit"), default="parallel")
     run_parser.add_argument("--max-rounds", type=int)
     run_parser.add_argument("--wait", action="store_true", help="Accepted for consistency; end-to-end run waits by default")
@@ -582,6 +600,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Skip env validation for help/version so those always work without config.
+    _args = argv if argv is not None else sys.argv[1:]
+    if not any(a in {"-h", "--help", "--version"} for a in _args):
+        config_errors = Config.validate()
+        if config_errors:
+            for err in config_errors:
+                _stderr(f"config error: {err}")
+            return 1
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
