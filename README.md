@@ -35,10 +35,10 @@ mirofish run \
   --requirement "Predict public reaction over 30 days" \
   --json
 
-# List prior runs
+# List prior runs (slim summary: run_id, status, created_at, artifact_count)
 mirofish runs list --json
 
-# Check run status
+# Check run status (full manifest)
 mirofish runs status <run_id> --json
 
 # Export artifacts
@@ -49,17 +49,20 @@ mirofish runs export <run_id> --json
 
 ```
 mirofish run
-  --files FILE [FILE ...]     Source documents (PDF, markdown, text)
-  --requirement TEXT          What to predict
+  --files FILE [FILE ...]     Source files (pdf/md/txt) used to ground the
+                              ontology and profiles
+  --requirement TEXT          Plain-English simulation requirement
+                              (e.g. "How would voters react to X?")
   --platform parallel|twitter|reddit   Simulation platform (default: parallel)
   --max-rounds N              Max simulation rounds (default: 10)
   --output-dir PATH           Run output directory
   --json                      Machine-readable JSON output (stdout)
 ```
 
-- Without `--json`: rich visual pipeline display on stderr
+- Without `--json`: rich visual pipeline display on stderr (respects `NO_COLOR` and non-tty stdout)
 - With `--json`: machine-readable JSON on stdout, plain progress on stderr
-- Exit code 0 = success, 1 = error
+- `--help` / `--version` work without a valid `.env`; other commands run `Config.validate()` first
+- Exit code 0 = success, 1 = error (including config errors)
 
 ### Run artifacts
 
@@ -96,7 +99,7 @@ uploads/runs/<run_id>/
 
 ## LLM providers
 
-Set `LLM_PROVIDER` in `.env`:
+Set `LLM_PROVIDER` in `.env`. Only `claude-cli` and `codex-cli` are accepted; any other value (e.g. `openai`) is rejected at startup with a `config error` and exit code 1.
 
 | Provider | Config | Cost |
 |----------|--------|------|
