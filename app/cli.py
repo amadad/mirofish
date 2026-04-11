@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import logging
 
+from ._agent_cli import DoctorCheck, doctor_runner
 from .utils.logger import get_logger
 from .cli_display import PipelineDisplay
 from .config import Config
@@ -519,6 +520,60 @@ def _run_pipeline(args: argparse.Namespace) -> Dict[str, Any]:
         raise
 
 
+def cmd_doctor() -> int:
+    """Run environment/config diagnostics for mirofish."""
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    env_path = os.path.join(repo_root, ".env")
+
+    valid_providers = ("claude-cli", "codex-cli")
+
+    def provider_set() -> bool:
+        return bool(os.environ.get("LLM_PROVIDER", "").strip())
+
+    def provider_valid() -> bool:
+        return Config.LLM_PROVIDER in valid_providers
+
+    # .env is optional — warn but don't fail. Emit before the checks table so
+    # the output order reads top-to-bottom: warnings, then checks, then summary.
+    if not os.path.exists(env_path):
+        print(
+            f"warning: .env file not found at {env_path} "
+            "(using process environment only)",
+            file=sys.stderr,
+        )
+
+    checks: list[DoctorCheck] = [
+        DoctorCheck(
+            name="LLM_PROVIDER set",
+            check=provider_set,
+            hint="export LLM_PROVIDER=claude-cli (or codex-cli) in .env",
+        ),
+        DoctorCheck(
+            name="LLM_PROVIDER valid",
+            check=provider_valid,
+            hint=f"must be one of {valid_providers}; got '{Config.LLM_PROVIDER}'",
+        ),
+    ]
+
+    # Only probe the provider binary when the provider name is a real option —
+    # otherwise the row is noise on top of the LLM_PROVIDER valid failure.
+    if Config.LLM_PROVIDER in valid_providers:
+        provider = Config.LLM_PROVIDER
+
+        def provider_binary_on_path() -> bool:
+            return shutil.which(provider) is not None
+
+        checks.append(
+            DoctorCheck(
+                name=f"{provider} binary on PATH",
+                check=provider_binary_on_path,
+                hint=f"install the {provider} binary or add it to PATH",
+            )
+        )
+
+    return doctor_runner(checks, exit_on_fail=False)
+
+
 def _handle_command(args: argparse.Namespace) -> Dict[str, Any]:
     if args.command == "runs" and args.runs_command == "list":
         store = RunStore(root_dir=args.output_dir)
@@ -596,21 +651,28 @@ def build_parser() -> argparse.ArgumentParser:
     runs_export.add_argument("--output-dir")
     runs_export.add_argument("--json", action="store_true")
 
+    subparsers.add_parser(
+        "doctor",
+        help="Run environment/config diagnostics (LLM_PROVIDER, provider binary, .env)",
+    )
+
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    # Skip env validation for help/version so those always work without config.
-    _args = argv if argv is not None else sys.argv[1:]
-    if not any(a in {"-h", "--help", "--version"} for a in _args):
-        config_errors = Config.validate()
-        if config_errors:
-            for err in config_errors:
-                _stderr(f"config error: {err}")
-            return 1
-
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # `doctor` must always run — it exists precisely to diagnose bad config.
+    if args.command == "doctor":
+        return cmd_doctor()
+
+    config_errors = Config.validate()
+    if config_errors:
+        for err in config_errors:
+            _stderr(f"config error: {err}")
+        _stderr("hint: run `mirofish doctor` for full diagnostics")
+        return 1
 
     try:
         payload = _handle_command(args)
