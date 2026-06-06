@@ -559,15 +559,18 @@ def cmd_doctor() -> int:
     # otherwise the row is noise on top of the LLM_PROVIDER valid failure.
     if Config.LLM_PROVIDER in valid_providers:
         provider = Config.LLM_PROVIDER
+        # The provider key ("claude-cli"/"codex-cli") is not the binary name —
+        # the client shells out to "claude"/"codex" (see utils/llm_client.py).
+        provider_binary = {"claude-cli": "claude", "codex-cli": "codex"}[provider]
 
         def provider_binary_on_path() -> bool:
-            return shutil.which(provider) is not None
+            return shutil.which(provider_binary) is not None
 
         checks.append(
             DoctorCheck(
-                name=f"{provider} binary on PATH",
+                name=f"{provider_binary} binary on PATH",
                 check=provider_binary_on_path,
-                hint=f"install the {provider} binary or add it to PATH",
+                hint=f"install the {provider_binary} binary or add it to PATH",
             )
         )
 
