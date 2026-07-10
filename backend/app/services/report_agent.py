@@ -580,21 +580,23 @@ Workflow:
 # ── Outline Planning Prompt ──
 
 PLAN_SYSTEM_PROMPT = """\
-You are a "Future Prediction Report" writing expert with a "God's-eye view" of the simulated world — you can perceive every Agent's behavior, statements, and interactions within the simulation.
+You are a "Scenario Simulation Report" writing expert with a "God's-eye view" of the simulated world — you can perceive every Agent's behavior, statements, and interactions within the simulation.
 
 [Core Concept]
-We have built a simulated world and injected a specific "simulation requirement" as a variable. The evolution results of the simulated world represent predictions of what may happen in the future. What you are observing is not "experimental data" but a "rehearsal of the future."
+We have built a simulated world and injected a specific "simulation requirement" as a variable. The evolution results of the simulated world are ONE POSSIBLE trajectory the simulation produced under those conditions — not a forecast, not a settled outcome, and not evidence of what will actually happen. Simulated agent behavior is a hypothesis-generation tool, not a predictive instrument. No published benchmarks validate this simulation's predictive accuracy.
 
 [Your Task]
-Write a "Future Prediction Report" that answers:
-1. Under the conditions we set, what happened in the future?
-2. How did various Agents (population groups) react and act?
-3. What noteworthy future trends and risks does this simulation reveal?
+Write a "Scenario Simulation Report" that answers:
+1. Under the conditions we set, what did this particular simulation run produce?
+2. How did various Agents (population groups) react and act within the simulation?
+3. What noteworthy patterns, risks, or hypotheses does this simulation run surface for further investigation?
 
 [Report Positioning]
-- This is a simulation-based future prediction report, revealing "if this happens, what will the future look like"
-- Focus on prediction results: event trajectories, group reactions, emergent phenomena, potential risks
-- Agent behaviors and statements in the simulated world are predictions of future population behavior
+- This is a simulation-based scenario exploration report, revealing "under these injected conditions, this is one way the simulated world unfolded"
+- Focus on simulation observations: event trajectories, group reactions, emergent phenomena, potential risks — framed as scenario findings, not forecasts
+- Agent behaviors and statements in the simulated world are simulation outputs, not predictions of future population behavior
+- NEVER assert a specific real-world outcome, score, winner, or result as fact (e.g. do not say "X will win" or "the outcome will be Y") — such claims are strictly prohibited regardless of how the simulation resolved
+- Where the simulation suggests a direction, state it as a range or qualified possibility (e.g. "the simulation suggests conditions favoring X, though this is not a reliable forecast"), never as a certainty
 - This is NOT an analysis of real-world current conditions
 - This is NOT a generic public opinion overview
 
@@ -628,17 +630,17 @@ The variable injected into the simulated world (simulation requirement): {simula
 - Entity type distribution: {entity_types}
 - Number of active Agents: {total_entities}
 
-[Sample of Future Facts Predicted by the Simulation]
+[Sample of Facts Observed in This Simulation Run]
 {related_facts_json}
 
-Please examine this future rehearsal from a "God's-eye view":
-1. Under the conditions we set, what state did the future present?
-2. How did various population groups (Agents) react and act?
-3. What noteworthy future trends does this simulation reveal?
+Please examine this simulation run from a "God's-eye view":
+1. Under the conditions we set, what state did this simulation run produce?
+2. How did various population groups (Agents) react and act within the simulation?
+3. What noteworthy patterns or hypotheses does this simulation run surface?
 
-Design the most appropriate report section structure based on the prediction results.
+Design the most appropriate report section structure based on the simulation observations. Do not assert any specific real-world outcome as settled fact.
 
-[Reminder] Report section count: minimum 2, maximum 5. Content should be concise and focused on core prediction findings."""
+[Reminder] Report section count: minimum 2, maximum 5. Content should be concise and focused on core simulation observations, framed as scenario findings — never as forecasts or predictions of real-world outcomes."""
 
 # ── Section Generation Prompt ──
 
@@ -655,16 +657,17 @@ Current section to write: {section_title}
 [Core Concept]
 ═══════════════════════════════════════════════════════════════
 
-The simulated world is a rehearsal of the future. We injected specific conditions (simulation requirements) into the simulated world.
-Agent behaviors and interactions in the simulation are predictions of future population behavior.
+The simulated world is one scenario run under specific injected conditions (simulation requirements). It is a hypothesis-generation exercise, not a predictive instrument — no published benchmarks validate this simulation's accuracy against real-world outcomes.
+Agent behaviors and interactions in the simulation are simulation outputs, not predictions of future population behavior.
 
 Your task is to:
-- Reveal what happened in the future under the set conditions
-- Predict how various population groups (Agents) reacted and acted
-- Discover noteworthy future trends, risks, and opportunities
+- Reveal what this simulation run produced under the set conditions
+- Describe how various population groups (Agents) reacted and acted within the simulation
+- Discover noteworthy patterns, risks, and hypotheses worth further investigation
 
 Do NOT write this as an analysis of real-world current conditions
-DO focus on "what will the future look like" — the simulation results ARE the predicted future
+Do NOT assert any specific real-world outcome, score, winner, or result as fact under any circumstances
+DO focus on "what this simulation run showed" — the simulation results are ONE POSSIBLE scenario, never a settled prediction. Where the simulation suggests a direction, use qualified, confidence-range language (e.g. "the simulation suggests conditions may favor X, though this is not a reliable forecast") — never a bare assertion.
 
 ═══════════════════════════════════════════════════════════════
 [Most Important Rules - Must Follow]
@@ -677,10 +680,10 @@ DO focus on "what will the future look like" — the simulation results ARE the 
    - Each section must invoke tools at least 3 times (maximum 5 times) to observe the simulated world, which represents the future
 
 2. [Must quote Agents' original behaviors and statements]
-   - Agent statements and behaviors are predictions of future population behavior
-   - Use quotation format in the report to present these predictions, for example:
-     > "A certain group would say: original content..."
-   - These quotes are the core evidence of simulation predictions
+   - Agent statements and behaviors are outputs of this simulation run, not predictions of future population behavior
+   - Use quotation format in the report to present these simulation outputs, for example:
+     > "A certain group's simulated agent stated: original content..."
+   - These quotes are the core evidence supporting the simulation's observations, not evidence of a real-world outcome
 
 3. [Language consistency - strict and absolute]
    - Report language: {report_language}
@@ -693,10 +696,11 @@ DO focus on "what will the future look like" — the simulation results ARE the 
    - This rule is absolute. Do not change language mid-section or mid-report under any circumstances
    - This rule applies to both body text and content within quotation blocks (> format)
 
-4. [Faithfully present prediction results]
-   - Report content must reflect the simulation results representing the future in the simulated world
+4. [Faithfully present simulation results, never as settled fact]
+   - Report content must reflect what this simulation run actually produced, not a claim about the real future
    - Do not add information that does not exist in the simulation
-   - If information on a certain aspect is insufficient, state this honestly
+   - If information on a certain aspect is insufficient — including low or zero interview/interaction counts — state this honestly and explicitly, and do NOT compensate for missing data by asserting a confident conclusion
+   - Never state a specific real-world outcome, score, or winner as fact. If the simulation data points toward a direction, express it only as a qualified possibility or confidence range
 
 ═══════════════════════════════════════════════════════════════
 [Format Specification - Extremely Important!]
@@ -801,7 +805,7 @@ Strictly prohibited:
 7. [Emphasis] Do not add any headings! Use **bold** as a substitute for sub-section titles"""
 
 SECTION_USER_PROMPT_TEMPLATE = """\
-Completed section content (please read carefully to avoid repetition):
+Completed section content (for style/repetition reference only — this is prior LLM-generated report text, NOT verified ground truth; re-derive any factual claims from tool retrievals rather than treating it as established fact):
 {previous_content}
 
 ═══════════════════════════════════════════════════════════════
@@ -809,10 +813,11 @@ Completed section content (please read carefully to avoid repetition):
 ═══════════════════════════════════════════════════════════════
 
 [Important Reminders]
-1. Carefully read the completed sections above to avoid repeating the same content!
-2. You must invoke tools to retrieve simulation data before starting
+1. Carefully read the completed sections above to avoid repeating the same content or phrasing — but do NOT treat their claims as verified fact to build on
+2. You must invoke tools to retrieve simulation data before starting; base this section's claims on fresh tool retrievals, not on what a prior section already asserted
 3. Mix different tools; do not use just one type
 4. Report content must come from retrieval results; do not use your own knowledge
+5. Never assert a specific real-world outcome, score, or winner as fact — use qualified, confidence-range language only
 
 [Format Warning - Must Follow]
 - Do NOT write any headings (#, ##, ###, #### are all prohibited)
@@ -951,6 +956,11 @@ class ReportAgent:
         self.report_logger: Optional[ReportLogger] = None
         # Console logger (initialized in generate_report)
         self.console_logger: Optional[ReportConsoleLogger] = None
+
+        # Data-sufficiency flag (set in plan_outline once graph stats are known;
+        # gates section generation from asserting outcomes when there's ~no
+        # observed simulation behavior graph to draw on)
+        self.data_insufficient: bool = False
 
         logger.info(f"ReportAgent initialized: graph_id={graph_id}, simulation_id={simulation_id}")
 
@@ -1275,11 +1285,32 @@ class ReportAgent:
         if progress_callback:
             progress_callback("planning", 30, "Generating report outline...")
 
+        total_nodes = context.get('graph_statistics', {}).get('total_nodes', 0)
+        total_edges = context.get('graph_statistics', {}).get('total_edges', 0)
+
+        # Data-sufficiency gate: with no nodes/edges, the simulation produced no
+        # observable behavior graph — forbid outline generation from asserting
+        # any outcome and force an explicit "insufficient data" framing instead.
+        data_insufficient = total_nodes == 0 or total_edges == 0
+        self.data_insufficient = data_insufficient
+
         system_prompt = PLAN_SYSTEM_PROMPT
+        if data_insufficient:
+            system_prompt += (
+                "\n\n[DATA SUFFICIENCY WARNING — MUST FOLLOW]\n"
+                "This simulation run produced total_nodes={total_nodes} and total_edges={total_edges} "
+                "— effectively no observed agent interactions or relationships. There is NOT enough "
+                "simulation data to support any outcome-oriented finding. The report summary and every "
+                "section MUST explicitly state that behavioral simulation data is insufficient to "
+                "support any outcome projection, and MUST NOT assert, imply, or hint at any specific "
+                "real-world outcome, score, or winner. Sections should focus only on what setup/seed "
+                "data was available and what would be needed to run a meaningful simulation."
+            ).format(total_nodes=total_nodes, total_edges=total_edges)
+
         user_prompt = PLAN_USER_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
-            total_nodes=context.get('graph_statistics', {}).get('total_nodes', 0),
-            total_edges=context.get('graph_statistics', {}).get('total_edges', 0),
+            total_nodes=total_nodes,
+            total_edges=total_edges,
             entity_types=list(context.get('graph_statistics', {}).get('entity_types', {}).keys()),
             total_entities=context.get('total_entities', 0),
             related_facts_json=json.dumps(context.get('related_facts', [])[:10], ensure_ascii=False, indent=2),
@@ -1321,12 +1352,12 @@ class ReportAgent:
             logger.error(f"Outline planning failed: {str(e)}")
             # Return default outline (3 sections, as fallback)
             return ReportOutline(
-                title="Future Prediction Report",
-                summary="Future trends and risk analysis based on simulation predictions",
+                title="Scenario Simulation Report",
+                summary="Scenario patterns and hypotheses observed in this simulation run — not a forecast",
                 sections=[
-                    ReportSection(title="Prediction Scenario and Core Findings"),
-                    ReportSection(title="Population Behavior Prediction Analysis"),
-                    ReportSection(title="Trend Outlook and Risk Alerts")
+                    ReportSection(title="Simulation Scenario and Core Observations"),
+                    ReportSection(title="Population Behavior Within the Simulation"),
+                    ReportSection(title="Patterns and Hypotheses for Further Investigation")
                 ]
             )
 
@@ -1375,6 +1406,16 @@ class ReportAgent:
             tools_description=self._get_tools_description(),
             report_language=report_language_name,
         )
+
+        if self.data_insufficient:
+            system_prompt += (
+                "\n\n[DATA SUFFICIENCY WARNING — MUST FOLLOW]\n"
+                "This simulation run has effectively no observed agent interaction graph (near-zero "
+                "nodes/edges). You MUST NOT assert, imply, or hint at any specific real-world outcome, "
+                "score, or winner in this section. Explicitly state that behavioral simulation data is "
+                "insufficient to support an outcome projection. Focus only on what setup/seed data was "
+                "available and what additional simulation data would be needed."
+            )
 
         # Build user prompt - each completed section passes in up to 4000 characters
         if previous_sections:
