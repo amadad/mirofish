@@ -15,6 +15,20 @@
 
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+One-command bootstrap for MiroFish on macOS / Linux.
+
+Usage:
+  ./scripts/setup.sh                       # sensible defaults
+  ./scripts/setup.sh --provider codex-cli  # pick LLM provider (default: claude-cli)
+  ./scripts/setup.sh --yes                 # non-interactive (auto-install uv)
+
+Steps: verify/install uv -> create .env -> uv sync -> check provider CLI
+       -> run `mirofish doctor`.
+USAGE
+}
+
 PROVIDER="claude-cli"
 ASSUME_YES=0
 
@@ -22,7 +36,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --provider) PROVIDER="${2:?--provider requires a value}"; shift 2 ;;
     --yes|-y)   ASSUME_YES=1; shift ;;
-    -h|--help)  grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)  usage; exit 0 ;;
     *) echo "Unknown option: $1 (see --help)"; exit 2 ;;
   esac
 done
@@ -35,14 +49,24 @@ esac
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
-say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33mWARN\033[0m %s\n' "$*"; }
+# Colors only on a real terminal, and never when NO_COLOR is set.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_SAY='\033[1;36m'; C_WARN='\033[1;33m'; C_OFF='\033[0m'
+else
+  C_SAY=''; C_WARN=''; C_OFF=''
+fi
+say()  { printf '%b==>%b %s\n' "$C_SAY" "$C_OFF" "$*"; }
+warn() { printf '%bWARN%b %s\n' "$C_WARN" "$C_OFF" "$*"; }
 
 # --- 1. uv ------------------------------------------------------------------
 if command -v uv >/dev/null 2>&1; then
   say "uv found: $(uv --version)"
 else
   if [ "$ASSUME_YES" -ne 1 ]; then
+    if [ ! -t 0 ]; then
+      echo "uv is not installed and stdin is not a terminal; re-run with --yes to auto-install."
+      exit 1
+    fi
     printf 'uv is not installed. Install it now from https://astral.sh/uv? [y/N] '
     read -r ans
     case "$ans" in y|Y|yes|YES) ;; *) echo "Aborted: uv is required."; exit 1 ;; esac

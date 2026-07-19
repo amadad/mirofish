@@ -30,6 +30,8 @@ dependencies, checks your LLM provider CLI and runs `mirofish doctor`):
 
 # Windows (PowerShell)
 .\scripts\setup.ps1                     # or: -Provider codex-cli, -Yes
+# If script execution is disabled (stock Windows default):
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
 Or manually:

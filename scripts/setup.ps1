@@ -5,6 +5,10 @@
 #   .\scripts\setup.ps1 -Provider codex-cli    # pick LLM provider (default: claude-cli)
 #   .\scripts\setup.ps1 -Yes                   # non-interactive (auto-install uv)
 #
+# If script execution is disabled on your machine (stock Windows defaults to
+# an ExecutionPolicy of Restricted), run it as:
+#   powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+#
 # What it does:
 #   1. Verifies (or installs) uv
 #   2. Creates .env from .env.example and sets LLM_PROVIDER
@@ -33,6 +37,10 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     Say "uv found: $(uv --version)"
 } else {
     if (-not $Yes) {
+        if ([Console]::IsInputRedirected) {
+            Write-Host "uv is not installed and stdin is not interactive; re-run with -Yes to auto-install."
+            exit 1
+        }
         $ans = Read-Host "uv is not installed. Install it now from https://astral.sh/uv? [y/N]"
         if ($ans -notmatch '^(y|yes)$') { Write-Host "Aborted: uv is required."; exit 1 }
     }
@@ -50,7 +58,9 @@ if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
     Say "Created .env from .env.example"
 }
-$envText = Get-Content ".env" -Raw
+# Symmetric UTF-8 read (Get-Content on PS 5.1 decodes BOM-less files as ANSI,
+# which would corrupt non-ASCII values on the read-modify-write cycle)
+$envText = [IO.File]::ReadAllText((Join-Path $RepoDir ".env"), (New-Object System.Text.UTF8Encoding($false)))
 if ($envText -match "(?m)^LLM_PROVIDER=") {
     $envText = $envText -replace "(?m)^LLM_PROVIDER=.*$", "LLM_PROVIDER=$Provider"
 } else {
@@ -67,12 +77,19 @@ Say "PYTHONUTF8=1 set for this session (add it to your user environment variable
 # --- 4. dependencies --------------------------------------------------------
 Say "Installing dependencies (uv sync)..."
 uv sync
-if ($LASTEXITCODE -ne 0) { Write-Host "uv sync failed."; exit 1 }
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "uv sync failed."
+    Warn "On Windows with Python 3.12 this is typically rapidfuzz >=3.14 shipping no cp312 wheels (fix proposed in PR #26)."
+    Warn "Workaround until that lands: 'uv python pin 3.11' and re-run this script."
+    exit 1
+}
 
 # --- 5. provider CLI --------------------------------------------------------
 if ($Provider -eq "claude-cli") {
     if (Get-Command claude -ErrorAction SilentlyContinue) {
-        Say "claude CLI found."
+        $claudeVer = ""
+        try { $claudeVer = (claude --version 2>$null | Select-Object -First 1) } catch {}
+        if ($claudeVer) { Say "claude CLI found: $claudeVer" } else { Say "claude CLI found." }
         Warn "If you have never logged in, run 'claude' once and use /login (headless '-p' calls fail otherwise)."
     } else {
         Warn "claude CLI not found on PATH. Install Claude Code (https://claude.com/claude-code) and log in before running simulations."
