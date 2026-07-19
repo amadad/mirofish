@@ -43,3 +43,6 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.uv]
+override-dependencies = ["rapidfuzz==3.13.0"]
