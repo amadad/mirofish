@@ -41,7 +41,6 @@ _TOOL_PROMPT_FOOTER = (
     "Do not wrap the JSON in markdown fences. Only use tool names from the list above.\n"
 )
 
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def _serialize_tools(tools: List[Dict[str, Any]]) -> str:
@@ -65,15 +64,20 @@ def _normalize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             label = msg.get("name") or msg.get("tool_call_id") or "tool"
             norm.append({"role": "user", "content": f"TOOL RESULT [{label}]: {content}"})
             continue
+        calls = msg.get("tool_calls") or []
+        if calls:
+            # CAMEL serializa los assistant con tool_calls como content=''
+            # (nunca None): disparar el resumen por PRESENCIA de tool_calls
+            summary = "; ".join(
+                f"{(c.get('function') or {}).get('name', '?')}"
+                f"({(c.get('function') or {}).get('arguments', '')})"
+                for c in calls if isinstance(c, dict)
+            )
+            prefix = (content or "").strip()
+            merged = (prefix + " " if prefix else "") + f"[previously called tools: {summary}]"
+            norm.append({"role": role, "content": merged})
+            continue
         if content is None:
-            calls = msg.get("tool_calls") or []
-            if calls:
-                summary = "; ".join(
-                    f"{(c.get('function') or {}).get('name', '?')}"
-                    f"({(c.get('function') or {}).get('arguments', '')})"
-                    for c in calls if isinstance(c, dict)
-                )
-                norm.append({"role": role, "content": f"[previously called tools: {summary}]"})
             continue
         norm.append({"role": role, "content": content})
     return norm
@@ -94,12 +98,20 @@ def _parse_cli_tool_response(text: str) -> Tuple[Optional[List[Dict[str, Any]]],
     try:
         candidate = json.loads(raw)
     except json.JSONDecodeError:
-        match = _JSON_OBJECT_RE.search(raw)
-        if match:
+        # Escaneo con raw_decode desde cada '{': a diferencia de una regex
+        # codiciosa, encuentra el primer objeto JSON VALIDO aunque haya prosa
+        # con llaves alrededor.
+        decoder = json.JSONDecoder()
+        idx = raw.find("{")
+        while idx != -1:
             try:
-                candidate = json.loads(match.group(0))
+                obj, _end = decoder.raw_decode(raw, idx)
+                if isinstance(obj, dict):
+                    candidate = obj
+                    break
             except json.JSONDecodeError:
-                candidate = None
+                pass
+            idx = raw.find("{", idx + 1)
 
     if isinstance(candidate, dict):
         calls = candidate.get("tool_calls")
@@ -125,6 +137,10 @@ def _parse_cli_tool_response(text: str) -> Tuple[Optional[List[Dict[str, Any]]],
                 return valid, None
         if isinstance(candidate.get("content"), str):
             return None, candidate["content"]
+        # El modelo intento el protocolo pero sin calls validos ni content
+        # string: devolver cadena vacia en vez de filtrar el blob JSON crudo
+        # como si fuera texto del agente.
+        return None, ""
 
     return None, text
 
@@ -232,6 +248,16 @@ class CLIModel(OpenAIModel):
 
         if tools:
             calls, text = _parse_cli_tool_response(content)
+            if calls:
+                # Filtrar contra las tools realmente ofrecidas: CAMEL indexa
+                # self._internal_tools[name] sin try/except y un nombre
+                # inventado perderia la ronda entera del agente
+                allowed = {(t.get("function", t) or {}).get("name")
+                           for t in tools if isinstance(t, dict)}
+                dropped = [c["name"] for c in calls if c["name"] not in allowed]
+                if dropped:
+                    logger.warning(f"CLI tool-calling: dropped unknown tool name(s): {dropped}")
+                calls = [c for c in calls if c["name"] in allowed]
             if calls:
                 logger.info(
                     f"CLI tool-calling: parsed {len(calls)} tool call(s): "
