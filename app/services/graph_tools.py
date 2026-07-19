@@ -299,6 +299,7 @@ class GraphToolsService:
     ) -> InterviewResult:
         """Interview simulated agents via OASIS IPC."""
         from .simulation_runner import SimulationRunner
+        from ..utils.llm_client import CLI_CALL_TIMEOUT_SECONDS
 
         result = InterviewResult(
             interview_topic=interview_requirement,
@@ -348,11 +349,15 @@ class GraphToolsService:
                 for idx in selected_indices
             ]
 
+            # One full CLI-call ceiling per interviewed agent: a fixed 180s budget
+            # starved whole batches to 0/N with subprocess-based providers.
+            batch_timeout = float(CLI_CALL_TIMEOUT_SECONDS * max(1, len(interviews_request)))
+
             api_result = SimulationRunner.interview_agents_batch(
                 simulation_id=simulation_id,
                 interviews=interviews_request,
                 platform=None,
-                timeout=180.0,
+                timeout=batch_timeout,
             )
 
             if not api_result.get("success", False):
