@@ -45,4 +45,7 @@ dev = [
 packages = ["app"]
 
 [tool.uv]
-override-dependencies = ["rapidfuzz==3.13.0"]
+# rapidfuzz >=3.14 ships no Windows cp312 wheels (and no sdist in-range), which
+# breaks `uv sync` under requires-python <3.13 on Windows. Scoped to win32 so
+# macOS/Linux keep the resolver's pick; drop once upstream publishes wheels.
+override-dependencies = ["rapidfuzz==3.13.0; sys_platform == 'win32'"]

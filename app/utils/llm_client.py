@@ -4,6 +4,7 @@ LLM Client — CLI-only providers (Claude Code, Codex).
 
 import json
 import re
+import shutil
 import subprocess
 import time
 import tempfile
@@ -16,6 +17,28 @@ logger = get_logger('mirofish.llm_client')
 
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds
+
+# Wall-clock ceiling for a single CLI provider call. Long prompts (large
+# knowledge-graph context, interview batches) can legitimately take several
+# minutes through a subprocess-based provider. Callers that wait on multiple
+# sequential calls (e.g. interview batches) should budget per call using this
+# constant rather than hardcoding their own number.
+CLI_CALL_TIMEOUT_SECONDS = 600
+
+
+def _resolve_cli(binary: str) -> str:
+    """Resolve a provider CLI to an absolute path, failing with a clear error.
+
+    On Windows, invoking a bare name only works for .exe; npm-style .cmd shims
+    need the resolved path. shutil.which also gives us a clean early failure
+    instead of an opaque FileNotFoundError mid-simulation.
+    """
+    resolved = shutil.which(binary)
+    if resolved is None:
+        raise RuntimeError(
+            f"'{binary}' CLI not found on PATH. Install it and log in before running simulations."
+        )
+    return resolved
 
 
 class LLMClient:
@@ -93,9 +116,9 @@ class LLMClient:
 
         try:
             result = subprocess.run(
-                ["claude", "-p", "--output-format", "json"],
+                [_resolve_cli("claude"), "-p", "--output-format", "json"],
                 input=prompt,
-                capture_output=True, text=True, timeout=600,
+                capture_output=True, text=True, timeout=CLI_CALL_TIMEOUT_SECONDS,
                 encoding="utf-8", errors="replace",
                 cwd=tempfile.gettempdir()
             )
@@ -103,6 +126,9 @@ class LLMClient:
             if result.returncode != 0:
                 logger.error(f"Claude CLI error: {result.stderr[:200]}")
                 raise RuntimeError(f"Claude CLI failed: {result.stderr[:200]}")
+
+            if "�" in result.stdout:
+                logger.warning("Claude CLI output contained undecodable bytes; replaced with U+FFFD")
 
             try:
                 output = json.loads(result.stdout)
@@ -113,7 +139,7 @@ class LLMClient:
             return self._clean_content(content)
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Claude CLI timed out after 300s")
+            raise RuntimeError(f"Claude CLI timed out after {CLI_CALL_TIMEOUT_SECONDS}s")
 
     def _chat_codex_cli(
         self,
@@ -140,15 +166,19 @@ class LLMClient:
 
         try:
             result = subprocess.run(
-                ["codex", "exec", "--skip-git-repo-check"],
+                [_resolve_cli("codex"), "exec", "--skip-git-repo-check"],
                 input=prompt,
-                capture_output=True, text=True, timeout=180,
+                capture_output=True, text=True, timeout=CLI_CALL_TIMEOUT_SECONDS,
+                encoding="utf-8", errors="replace",
                 cwd=tempfile.gettempdir()
             )
 
             if result.returncode != 0:
                 logger.error(f"Codex CLI error: {result.stderr[:200]}")
                 raise RuntimeError(f"Codex CLI failed: {result.stderr[:200]}")
+
+            if "�" in result.stdout:
+                logger.warning("Codex CLI output contained undecodable bytes; replaced with U+FFFD")
 
             raw = result.stdout.strip()
             parts = raw.split("\ncodex\n")
@@ -166,7 +196,7 @@ class LLMClient:
             return self._clean_content(content)
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Codex CLI timed out after 180s")
+            raise RuntimeError(f"Codex CLI timed out after {CLI_CALL_TIMEOUT_SECONDS}s")
 
     def chat_json(
         self,
