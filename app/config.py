@@ -25,6 +25,26 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _get_int_env(name: str, default: int, min_value: int = 1) -> int:
+    """Parse an int env var, falling back (with a warning) on bad values.
+
+    Raising at import time from the Config class body produces an opaque
+    crash before validate() can run, so malformed values degrade to the
+    default instead.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        import logging
+        logging.getLogger("mirofish.config").warning(
+            "Ignoring invalid %s=%r; using default %s", name, raw, default)
+        return default
+    return max(min_value, value)
+
+
 def _resolve_path(default_path: str, env_name: str) -> str:
     raw_value = os.environ.get(env_name, default_path)
     return os.path.abspath(raw_value)
@@ -46,7 +66,7 @@ class Config:
     # vocal / relevant / silent agents). EXTRA_QUESTIONS (';'-separated) are
     # appended to the generated questionnaire — useful for closed questions
     # whose answers can be coded into distributions.
-    INTERVIEW_MAX_AGENTS = int(os.environ.get("MIROFISH_INTERVIEW_MAX_AGENTS", "5"))
+    INTERVIEW_MAX_AGENTS = _get_int_env("MIROFISH_INTERVIEW_MAX_AGENTS", 5)
     INTERVIEW_EXTRA_QUESTIONS = os.environ.get("MIROFISH_INTERVIEW_EXTRA_QUESTIONS", "").strip()
 
     DATA_DIR = _resolve_path(os.path.join(os.path.dirname(__file__), "../data/graphs"), "DATA_DIR")

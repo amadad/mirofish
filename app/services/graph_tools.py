@@ -362,23 +362,39 @@ class GraphToolsService:
                 for idx in selected_indices
             ]
 
-            # One full CLI-call ceiling per interviewed agent: a fixed 180s budget
-            # starved whole batches to 0/N with subprocess-based providers.
-            batch_timeout = float(CLI_CALL_TIMEOUT_SECONDS * max(1, len(interviews_request)))
+            # Chunked batches, one full CLI-call ceiling per interviewed agent
+            # (a fixed 180s budget starved whole batches to 0/N). Chunking
+            # keeps each IPC transaction small so a single hung interview
+            # loses only its chunk instead of the entire panel, and bounds
+            # the worst-case wall clock per transaction.
+            CHUNK_SIZE = 5
+            results_dict: Dict[str, Any] = {}
+            any_chunk_ok = False
+            for start in range(0, len(interviews_request), CHUNK_SIZE):
+                chunk = interviews_request[start:start + CHUNK_SIZE]
+                try:
+                    api_result = SimulationRunner.interview_agents_batch(
+                        simulation_id=simulation_id,
+                        interviews=chunk,
+                        platform=None,
+                        timeout=float(CLI_CALL_TIMEOUT_SECONDS * len(chunk)),
+                    )
+                except Exception as chunk_exc:
+                    logger.warning(f"Interview chunk {start // CHUNK_SIZE + 1} failed (non-fatal): {chunk_exc}")
+                    continue
+                if api_result.get("success", False):
+                    any_chunk_ok = True
+                    api_data = api_result.get("result", {})
+                    if isinstance(api_data, dict):
+                        results_dict.update(api_data.get("results", {}) or {})
+                else:
+                    logger.warning(
+                        f"Interview chunk {start // CHUNK_SIZE + 1} API failure: "
+                        f"{api_result.get('error', 'Unknown error')}")
 
-            api_result = SimulationRunner.interview_agents_batch(
-                simulation_id=simulation_id,
-                interviews=interviews_request,
-                platform=None,
-                timeout=batch_timeout,
-            )
-
-            if not api_result.get("success", False):
-                result.summary = f"Interview API call failed: {api_result.get('error', 'Unknown error')}"
+            if not any_chunk_ok:
+                result.summary = "Interview API call failed for every chunk"
                 return result
-
-            api_data = api_result.get("result", {})
-            results_dict = api_data.get("results", {}) if isinstance(api_data, dict) else {}
 
             for i, agent_idx in enumerate(selected_indices):
                 agent = selected_agents[i]
@@ -556,7 +572,14 @@ class GraphToolsService:
                 ],
                 temperature=0.3,
             )
-            indices = response.get("selected_indices", [])[:max_agents]
+            # Dedupe preserving order and coerce/validate: the LLM sometimes
+            # returns duplicates or stringified indices
+            raw_indices = response.get("selected_indices", [])
+            indices = list(dict.fromkeys(
+                int(i) for i in raw_indices
+                if isinstance(i, (int, float, str)) and str(i).strip().lstrip("-").isdigit()
+                and 0 <= int(i) < len(profiles)
+            ))[:max_agents]
             reasoning = response.get("reasoning", "Selected based on relevance")
             agents = [profiles[i] for i in indices if 0 <= i < len(profiles)]
             valid_indices = [i for i in indices if 0 <= i < len(profiles)]
