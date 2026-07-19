@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
 
+from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
 
@@ -296,8 +297,14 @@ class GraphToolsService:
         simulation_requirement: str = "",
         max_agents: int = 5,
         custom_questions: List[str] = None,
+        activity_by_agent: Optional[Dict[int, int]] = None,
     ) -> InterviewResult:
-        """Interview simulated agents via OASIS IPC."""
+        """Interview simulated agents via OASIS IPC.
+
+        activity_by_agent maps agent index -> action count; when provided (and
+        the panel is large enough) it enables stratified sampling so the panel
+        mixes vocal, relevant and silent agents instead of only top posters.
+        """
         from .simulation_runner import SimulationRunner
         from ..utils.llm_client import CLI_CALL_TIMEOUT_SECONDS
 
@@ -318,6 +325,7 @@ class GraphToolsService:
             interview_requirement=interview_requirement,
             simulation_requirement=simulation_requirement,
             max_agents=max_agents,
+            activity_by_agent=activity_by_agent,
         )
         result.selected_agents = selected_agents
         result.selection_reasoning = selection_reasoning
@@ -327,6 +335,11 @@ class GraphToolsService:
                 interview_requirement=interview_requirement,
                 simulation_requirement=simulation_requirement,
                 selected_agents=selected_agents,
+            )
+
+        if Config.INTERVIEW_EXTRA_QUESTIONS:
+            result.interview_questions.extend(
+                q.strip() for q in Config.INTERVIEW_EXTRA_QUESTIONS.split(";") if q.strip()
             )
 
         combined_prompt = "\n".join([f"{i+1}. {q}" for i, q in enumerate(result.interview_questions)])
@@ -478,7 +491,43 @@ class GraphToolsService:
 
         return []
 
-    def _select_agents_for_interview(self, profiles, interview_requirement, simulation_requirement, max_agents):
+    def _select_agents_for_interview(self, profiles, interview_requirement, simulation_requirement, max_agents,
+                                     activity_by_agent=None):
+        # Stratified sampling for larger panels: pure top-poster selection
+        # over-represents the vocal minority, while silent agents often hold
+        # the most informative objections (they saw everything and engaged
+        # with none of it). Quotas: ~40% most vocal, ~30% LLM-picked for
+        # relevance from the remainder, ~30% silent non-participants.
+        if activity_by_agent and max_agents >= 6 and len(profiles) > max_agents:
+            n_vocal = max(1, round(max_agents * 0.4))
+            n_silent = max(1, round(max_agents * 0.3))
+            n_llm = max(0, max_agents - n_vocal - n_silent)
+
+            by_activity = sorted(range(len(profiles)), key=lambda i: -activity_by_agent.get(i, 0))
+            vocal = [i for i in by_activity if activity_by_agent.get(i, 0) > 0][:n_vocal]
+            silent_pool = [i for i in range(len(profiles))
+                           if activity_by_agent.get(i, 0) == 0 and i not in vocal]
+            stride = max(1, len(silent_pool) // n_silent) if silent_pool else 1
+            silent = silent_pool[::stride][:n_silent]
+
+            chosen = set(vocal) | set(silent)
+            remainder_idx = [i for i in range(len(profiles)) if i not in chosen]
+            llm_sel = []
+            if n_llm > 0 and remainder_idx:
+                remainder = [profiles[i] for i in remainder_idx]
+                _, rel_idx, _ = self._select_agents_for_interview(
+                    remainder, interview_requirement, simulation_requirement, n_llm
+                )
+                llm_sel = [remainder_idx[i] for i in rel_idx]
+
+            indices = vocal + llm_sel + silent
+            agents = [profiles[i] for i in indices]
+            reasoning = (
+                f"Stratified panel of {len(indices)}: {len(vocal)} most vocal, "
+                f"{len(llm_sel)} LLM-picked for relevance, {len(silent)} silent non-participants"
+            )
+            return agents, indices, reasoning
+
         agent_summaries = [
             {
                 "index": i,

@@ -40,6 +40,15 @@ class Config:
 
     LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "claude-cli").strip().lower()
 
+    # Post-simulation interviews for the final report. Each interviewed agent
+    # costs one LLM call per platform, so the default stays small; raise it to
+    # build a larger synthetic panel (>=6 also enables stratified sampling of
+    # vocal / relevant / silent agents). EXTRA_QUESTIONS (';'-separated) are
+    # appended to the generated questionnaire — useful for closed questions
+    # whose answers can be coded into distributions.
+    INTERVIEW_MAX_AGENTS = int(os.environ.get("MIROFISH_INTERVIEW_MAX_AGENTS", "5"))
+    INTERVIEW_EXTRA_QUESTIONS = os.environ.get("MIROFISH_INTERVIEW_EXTRA_QUESTIONS", "").strip()
+
     DATA_DIR = _resolve_path(os.path.join(os.path.dirname(__file__), "../data/graphs"), "DATA_DIR")
 
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024
