@@ -45,7 +45,12 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
         if ($ans -notmatch '^(y|yes)$') { Write-Host "Aborted: uv is required."; exit 1 }
     }
     Say "Installing uv..."
-    Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+    # Download to a file first: avoids executing a partial stream and iex
+    # scope pollution (vs irm | iex)
+    $uvInstaller = Join-Path $env:TEMP "uv-install-$PID.ps1"
+    Invoke-RestMethod https://astral.sh/uv/install.ps1 -OutFile $uvInstaller
+    & $uvInstaller
+    Remove-Item $uvInstaller -ErrorAction SilentlyContinue
     $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
         Write-Host "uv installed but not on PATH; open a new terminal and re-run."

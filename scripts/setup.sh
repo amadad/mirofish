@@ -72,7 +72,12 @@ else
     case "$ans" in y|Y|yes|YES) ;; *) echo "Aborted: uv is required."; exit 1 ;; esac
   fi
   say "Installing uv..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  # Download to a file first: avoids executing a partially-received stream
+  # and leaves an inspectable artifact (vs curl | sh)
+  uv_installer="$(mktemp)"
+  trap 'rm -f "$uv_installer"' EXIT
+  curl -LsSf https://astral.sh/uv/install.sh -o "$uv_installer"
+  sh "$uv_installer"
   # The installer drops uv into ~/.local/bin (or ~/.cargo/bin on older setups)
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
   command -v uv >/dev/null 2>&1 || { echo "uv installed but not on PATH; open a new shell and re-run."; exit 1; }
