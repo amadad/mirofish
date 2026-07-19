@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import time
+import tempfile
 from typing import Optional, Dict, Any, List
 
 from ..config import Config
@@ -92,9 +93,11 @@ class LLMClient:
 
         try:
             result = subprocess.run(
-                ["claude", "-p", "--output-format", "json", prompt],
-                capture_output=True, text=True, timeout=300,
-                cwd="/tmp"
+                ["claude", "-p", "--output-format", "json"],
+                input=prompt,
+                capture_output=True, text=True, timeout=600,
+                encoding="utf-8", errors="replace",
+                cwd=tempfile.gettempdir()
             )
 
             if result.returncode != 0:
@@ -140,7 +143,7 @@ class LLMClient:
                 ["codex", "exec", "--skip-git-repo-check"],
                 input=prompt,
                 capture_output=True, text=True, timeout=180,
-                cwd="/tmp"
+                cwd=tempfile.gettempdir()
             )
 
             if result.returncode != 0:
