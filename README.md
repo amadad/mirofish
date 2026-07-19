@@ -21,6 +21,19 @@ A social simulation scenario engine. Feed it documents describing any scenario, 
 
 ### Setup
 
+One-command bootstrap (installs uv if missing, creates `.env`, syncs
+dependencies, checks your LLM provider CLI and runs `mirofish doctor`):
+
+```bash
+# macOS / Linux
+./scripts/setup.sh                      # or: --provider codex-cli, --yes
+
+# Windows (PowerShell)
+.\scripts\setup.ps1                     # or: -Provider codex-cli, -Yes
+```
+
+Or manually:
+
 ```bash
 cp .env.example .env
 # Default: claude-cli (uses your Claude Code subscription)
