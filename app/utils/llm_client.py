@@ -2,6 +2,7 @@
 LLM Client — CLI-only providers (Claude Code, Codex).
 """
 
+import functools
 import json
 import re
 import shutil
@@ -26,6 +27,17 @@ RETRY_BASE_DELAY = 2.0  # seconds
 CLI_CALL_TIMEOUT_SECONDS = 600
 
 
+class LLMTimeoutError(RuntimeError):
+    """A CLI call exhausted its wall-clock ceiling.
+
+    Kept distinct from generic RuntimeError so the retry loop can skip it:
+    a prompt that exhausts the full ceiling will almost certainly exhaust it
+    again, and retrying only multiplies the wait (3x600s + backoff ~= 30 min
+    blocked on a single call).
+    """
+
+
+@functools.lru_cache(maxsize=None)
 def _resolve_cli(binary: str) -> str:
     """Resolve a provider CLI to an absolute path, failing with a clear error.
 
@@ -83,6 +95,9 @@ class LLMClient:
                 if self.provider == "codex-cli":
                     return self._chat_codex_cli(messages, temperature, max_tokens, response_format)
                 return self._chat_claude_cli(messages, temperature, max_tokens, response_format)
+            except LLMTimeoutError:
+                # No retry: see LLMTimeoutError docstring
+                raise
             except RuntimeError as exc:
                 last_error = exc
                 if attempt < MAX_RETRIES - 1:
@@ -139,7 +154,7 @@ class LLMClient:
             return self._clean_content(content)
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Claude CLI timed out after {CLI_CALL_TIMEOUT_SECONDS}s")
+            raise LLMTimeoutError(f"Claude CLI timed out after {CLI_CALL_TIMEOUT_SECONDS}s")
 
     def _chat_codex_cli(
         self,
@@ -196,7 +211,7 @@ class LLMClient:
             return self._clean_content(content)
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Codex CLI timed out after {CLI_CALL_TIMEOUT_SECONDS}s")
+            raise LLMTimeoutError(f"Codex CLI timed out after {CLI_CALL_TIMEOUT_SECONDS}s")
 
     def chat_json(
         self,
