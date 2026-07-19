@@ -185,16 +185,22 @@ class ReportAgent:
                     f"[Round {a.round_num}] [{a.platform}] {a.agent_name} ({a.action_type}): {content_preview}"
                 )
 
-            # Interview top agents
+            # Interview a panel of agents (size configurable; with activity
+            # data the selector stratifies vocal / relevant / silent agents)
             interview_text = ""
             try:
-                top_agents = sorted(agent_stats, key=lambda x: x.get("total_actions", 0), reverse=True)[:5]
-                if top_agents:
+                if agent_stats:
+                    activity_by_agent = {
+                        int(s["agent_id"]): int(s.get("total_actions", 0))
+                        for s in agent_stats
+                        if s.get("agent_id") is not None
+                    }
                     interview_result = self.graph_tools.interview_agents(
                         simulation_id=self.simulation_id,
                         interview_requirement=f"What is your prediction for how {self.simulation_requirement}? What surprised you during the simulation?",
                         simulation_requirement=self.simulation_requirement,
-                        max_agents=5,
+                        max_agents=Config.INTERVIEW_MAX_AGENTS,
+                        activity_by_agent=activity_by_agent,
                     )
                     if hasattr(interview_result, "to_text"):
                         interview_text = interview_result.to_text()

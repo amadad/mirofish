@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
 
+from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
 
@@ -296,9 +297,16 @@ class GraphToolsService:
         simulation_requirement: str = "",
         max_agents: int = 5,
         custom_questions: List[str] = None,
+        activity_by_agent: Optional[Dict[int, int]] = None,
     ) -> InterviewResult:
-        """Interview simulated agents via OASIS IPC."""
+        """Interview simulated agents via OASIS IPC.
+
+        activity_by_agent maps agent index -> action count; when provided (and
+        the panel is large enough) it enables stratified sampling so the panel
+        mixes vocal, relevant and silent agents instead of only top posters.
+        """
         from .simulation_runner import SimulationRunner
+        from ..utils.llm_client import CLI_CALL_TIMEOUT_SECONDS
 
         result = InterviewResult(
             interview_topic=interview_requirement,
@@ -317,6 +325,7 @@ class GraphToolsService:
             interview_requirement=interview_requirement,
             simulation_requirement=simulation_requirement,
             max_agents=max_agents,
+            activity_by_agent=activity_by_agent,
         )
         result.selected_agents = selected_agents
         result.selection_reasoning = selection_reasoning
@@ -326,6 +335,11 @@ class GraphToolsService:
                 interview_requirement=interview_requirement,
                 simulation_requirement=simulation_requirement,
                 selected_agents=selected_agents,
+            )
+
+        if Config.INTERVIEW_EXTRA_QUESTIONS:
+            result.interview_questions.extend(
+                q.strip() for q in Config.INTERVIEW_EXTRA_QUESTIONS.split(";") if q.strip()
             )
 
         combined_prompt = "\n".join([f"{i+1}. {q}" for i, q in enumerate(result.interview_questions)])
@@ -348,19 +362,39 @@ class GraphToolsService:
                 for idx in selected_indices
             ]
 
-            api_result = SimulationRunner.interview_agents_batch(
-                simulation_id=simulation_id,
-                interviews=interviews_request,
-                platform=None,
-                timeout=180.0,
-            )
+            # Chunked batches, one full CLI-call ceiling per interviewed agent
+            # (a fixed 180s budget starved whole batches to 0/N). Chunking
+            # keeps each IPC transaction small so a single hung interview
+            # loses only its chunk instead of the entire panel, and bounds
+            # the worst-case wall clock per transaction.
+            CHUNK_SIZE = 5
+            results_dict: Dict[str, Any] = {}
+            any_chunk_ok = False
+            for start in range(0, len(interviews_request), CHUNK_SIZE):
+                chunk = interviews_request[start:start + CHUNK_SIZE]
+                try:
+                    api_result = SimulationRunner.interview_agents_batch(
+                        simulation_id=simulation_id,
+                        interviews=chunk,
+                        platform=None,
+                        timeout=float(CLI_CALL_TIMEOUT_SECONDS * len(chunk)),
+                    )
+                except Exception as chunk_exc:
+                    logger.warning(f"Interview chunk {start // CHUNK_SIZE + 1} failed (non-fatal): {chunk_exc}")
+                    continue
+                if api_result.get("success", False):
+                    any_chunk_ok = True
+                    api_data = api_result.get("result", {})
+                    if isinstance(api_data, dict):
+                        results_dict.update(api_data.get("results", {}) or {})
+                else:
+                    logger.warning(
+                        f"Interview chunk {start // CHUNK_SIZE + 1} API failure: "
+                        f"{api_result.get('error', 'Unknown error')}")
 
-            if not api_result.get("success", False):
-                result.summary = f"Interview API call failed: {api_result.get('error', 'Unknown error')}"
+            if not any_chunk_ok:
+                result.summary = "Interview API call failed for every chunk"
                 return result
-
-            api_data = api_result.get("result", {})
-            results_dict = api_data.get("results", {}) if isinstance(api_data, dict) else {}
 
             for i, agent_idx in enumerate(selected_indices):
                 agent = selected_agents[i]
@@ -473,7 +507,43 @@ class GraphToolsService:
 
         return []
 
-    def _select_agents_for_interview(self, profiles, interview_requirement, simulation_requirement, max_agents):
+    def _select_agents_for_interview(self, profiles, interview_requirement, simulation_requirement, max_agents,
+                                     activity_by_agent=None):
+        # Stratified sampling for larger panels: pure top-poster selection
+        # over-represents the vocal minority, while silent agents often hold
+        # the most informative objections (they saw everything and engaged
+        # with none of it). Quotas: ~40% most vocal, ~30% LLM-picked for
+        # relevance from the remainder, ~30% silent non-participants.
+        if activity_by_agent and max_agents >= 6 and len(profiles) > max_agents:
+            n_vocal = max(1, round(max_agents * 0.4))
+            n_silent = max(1, round(max_agents * 0.3))
+            n_llm = max(0, max_agents - n_vocal - n_silent)
+
+            by_activity = sorted(range(len(profiles)), key=lambda i: -activity_by_agent.get(i, 0))
+            vocal = [i for i in by_activity if activity_by_agent.get(i, 0) > 0][:n_vocal]
+            silent_pool = [i for i in range(len(profiles))
+                           if activity_by_agent.get(i, 0) == 0 and i not in vocal]
+            stride = max(1, len(silent_pool) // n_silent) if silent_pool else 1
+            silent = silent_pool[::stride][:n_silent]
+
+            chosen = set(vocal) | set(silent)
+            remainder_idx = [i for i in range(len(profiles)) if i not in chosen]
+            llm_sel = []
+            if n_llm > 0 and remainder_idx:
+                remainder = [profiles[i] for i in remainder_idx]
+                _, rel_idx, _ = self._select_agents_for_interview(
+                    remainder, interview_requirement, simulation_requirement, n_llm
+                )
+                llm_sel = [remainder_idx[i] for i in rel_idx]
+
+            indices = vocal + llm_sel + silent
+            agents = [profiles[i] for i in indices]
+            reasoning = (
+                f"Stratified panel of {len(indices)}: {len(vocal)} most vocal, "
+                f"{len(llm_sel)} LLM-picked for relevance, {len(silent)} silent non-participants"
+            )
+            return agents, indices, reasoning
+
         agent_summaries = [
             {
                 "index": i,
@@ -502,7 +572,14 @@ class GraphToolsService:
                 ],
                 temperature=0.3,
             )
-            indices = response.get("selected_indices", [])[:max_agents]
+            # Dedupe preserving order and coerce/validate: the LLM sometimes
+            # returns duplicates or stringified indices
+            raw_indices = response.get("selected_indices", [])
+            indices = list(dict.fromkeys(
+                int(i) for i in raw_indices
+                if isinstance(i, (int, float, str)) and str(i).strip().lstrip("-").isdigit()
+                and 0 <= int(i) < len(profiles)
+            ))[:max_agents]
             reasoning = response.get("reasoning", "Selected based on relevance")
             agents = [profiles[i] for i in indices if 0 <= i < len(profiles)]
             valid_indices = [i for i in indices if 0 <= i < len(profiles)]
