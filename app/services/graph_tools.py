@@ -352,7 +352,14 @@ class GraphToolsService:
                 simulation_id=simulation_id,
                 interviews=interviews_request,
                 platform=None,
-                timeout=180.0,
+                # 180s was too tight for CLI-based LLM providers (e.g. claude-cli):
+                # each interview response is a subprocess spawn that can legitimately
+                # take up to the LLM client's own per-call ceiling (600s in
+                # llm_client.py). A batch of up to len(selected_indices) agents x 2
+                # platforms was routinely timing out at 0/N successful interviews
+                # even on runs with 100+ agent profiles. Raised to match that ceiling
+                # with headroom for a few sequential/parallel calls.
+                timeout=600.0,
             )
 
             if not api_result.get("success", False):
